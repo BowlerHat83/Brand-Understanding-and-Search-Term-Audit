@@ -4,7 +4,7 @@ import collections
 import pandas as pd
 from google import genai
 from google.genai import errors
-import cache_manager as cm
+from . import cache_manager as cm
 
 # Precision Prompt Safeguard
 BATCH_AUDIT_SYSTEM_PROMPT = (
