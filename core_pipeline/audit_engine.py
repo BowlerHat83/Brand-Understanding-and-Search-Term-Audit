@@ -2,10 +2,11 @@ import re
 import json
 import collections
 import pandas as pd
-from openai import OpenAI
+from google import genai
+from google.genai import errors
 import cache_manager as cm
 
-# --- SYSTEM PROMPT CONSTANTS WITH ACCURACY SAFEGUARDS ---
+# Precision Prompt Safeguard
 BATCH_AUDIT_SYSTEM_PROMPT = (
     "You are a conservative, line-by-line PPC Auditing Engine. Your goal is to review a "
     "micro-batch of search terms with absolute precision against a brand blueprint.\n\n"
@@ -15,53 +16,49 @@ BATCH_AUDIT_SYSTEM_PROMPT = (
     "   - 'RELEVANT_BRAND': Contains a protected client brand name variation.\n"
     "   - 'RELEVANT_GENERIC': Aligns perfectly with the commercial intent of the Core Offering.\n"
     "   - 'IRRELEVANT': Mentions a competitor, or indicates wrong intent (DIY, jobs, info, blogs).\n"
-    "   - 'REVIEW_QUEUE': Only use this if the term is completely ambiguous, a random tracking ID, or impossible to determine.\n"
+    "   - 'REVIEW_QUEUE': Only use this if the term is completely ambiguous or tracking data.\n"
     "3. Calculate an internal confidence score between 0.0 and 1.0. If your score for 'IRRELEVANT' or 'RELEVANT' is below 0.7, route the term to 'REVIEW_QUEUE'.\n"
-    "4. To eliminate context laziness, you must write your analysis/reasoning FIRST inside the JSON object before selecting the decision.\n\n"
-    "Output MUST be a strict JSON object containing a top-level key 'term_data' mapping to an array of objects. "
-    "Do not include markdown code blocks or backticks."
+    "4. Write your analysis/reasoning FIRST inside the JSON object before selecting the decision.\n\n"
+    "Output MUST be a strict JSON object containing a top-level key 'term_data' mapping to an array of objects."
 )
 
 def chunk_list(lst: list, n: int):
-    """Yield successive n-sized chunks from a list."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-def run_search_terms_audit(csv_file_path: str, selected_profile_key: str) -> dict:
-    """
-    Executes the Tier-2 Data Audit Pipeline. Processes Google Ads reports via 
-    high-accuracy AI micro-batching, reconciles records, and safely builds root negatives.
-    """
-    # 1. Fetch our Absolute Truth blueprint from our Stage 1 cache
+def run_search_terms_audit(csv_file_path: str, selected_profile_key: str, progress_bar_ui=None, status_text_ui=None) -> dict:
     cached_profile = cm.get_profile_by_name(selected_profile_key)
     if not cached_profile:
         raise ValueError(f"Profile cache '{selected_profile_key}' could not be located.")
         
     blueprint = cached_profile["blueprint"]
-    
-    # 2. Read and parse the inputted Google Ads CSV report
     df = pd.read_csv(csv_file_path)
-    
-    # Normalize headers to handle variable Google Ads layout exports safely
     df.columns = [col.lower().strip() for col in df.columns]
+    
     if "search term" not in df.columns:
-        raise KeyError("Could not find required 'Search term' column in the uploaded CSV.")
+        raise KeyError("ERR_MISSING_COLUMN: Could not find required 'Search term' column in the uploaded CSV.")
         
-    # Extract unique, clean terms to prevent auditing duplicate strings
     raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
     total_inputted_count = len(raw_terms)
     
-    # 3. Establish Core Classification Storage Buckets
     list_relevant = []
     list_irrelevant = []
     list_review = []
     
-    client = OpenAI()
+    # Initialize the official Gemini Client
+    client = genai.Client()
     
-    # 4. High-Accuracy Micro-Batching Loop (Slices text into blocks of 30)
     micro_batches = list(chunk_list(raw_terms, 30))
+    total_batches = len(micro_batches)
     
-    for batch in micro_batches:
+    # Process batches
+    for idx, batch in enumerate(micro_batches):
+        # UI COSMETIC: Update progress bar if passed from app.py
+        if progress_bar_ui and status_text_ui:
+            progress_percent = (idx) / total_batches
+            progress_bar_ui.progress(progress_percent)
+            status_text_ui.text(f"Processing micro-batch {idx + 1} of {total_batches} ({len(batch)} terms)...")
+
         user_prompt = f"""
         **Brand Blueprint Context:**
         - Brand Name: {selected_profile_key.split('|')[0].strip()}
@@ -69,58 +66,63 @@ def run_search_terms_audit(csv_file_path: str, selected_profile_key: str) -> dic
         - Core Offering Boundary: {blueprint["strict_relevance_rule"]}
         - Explicit Junk Targets: {", ".join(blueprint["explicit_negative_triggers"])}
         
-        **Micro-Batch to Audit (Process each line independently):**
+        **Micro-Batch to Audit:**
         {json.dumps(batch)}
-        
-        Return a JSON object with this exact format:
-        {{
-            "term_data": [
-                {{"term": "example query", "reasoning": "why it matches or fails blueprint", "classification": "IRRELEVANT", "confidence": 0.95}}
-            ]
-        }}
         """
         
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": BATCH_AUDIT_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1 # Absolute minimum creativity for predictable extraction math
+            # Native Gemini Structural JSON Request
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=user_prompt,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                    temperature=0.1
+                ),
             )
             
-            # Extract array data back out of the response payload
-            payload = json.loads(response.choices[0].message.content)
+            payload = json.loads(response.text)
             records = payload.get("term_data", [])
             
-            # Route items to their proper storage tables based on rules and thresholds
             for item in records:
                 term_string = item.get("term", "").strip()
                 classification = item.get("classification", "REVIEW_QUEUE")
                 confidence = float(item.get("confidence", 0.0))
                 
-                # Security Override: Low confidence pushes items to the Review Queue automatically
                 if confidence < 0.7:
-                    list_review.append(term_string)
+                    list_review.append({"Search Term": term_string, "Reasoning": item.get("reasoning", "Low confidence override."), "Confidence Score": confidence})
                 elif classification in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
-                    list_relevant.append(term_string)
+                    list_relevant.append({"Search Term": term_string, "Reasoning": item.get("reasoning", ""), "Confidence Score": confidence})
                 elif classification == "IRRELEVANT":
-                    list_irrelevant.append(term_string)
+                    list_irrelevant.append({"Search Term": term_string, "Reasoning": item.get("reasoning", ""), "Confidence Score": confidence})
                 else:
-                    list_review.append(term_string)
+                    list_review.append({"Search Term": term_string, "Reasoning": item.get("reasoning", "Unrecognized classification tag."), "Confidence Score": confidence})
                     
+        # --- SPECIFIC GEMINI ERROR HANDLING BLOCKS ---
+        except errors.APIError as api_err:
+            if api_err.code == 429:
+                raise RuntimeError(
+                    "ERR_GEMINI_QUOTA_EXCEEDED: Your Gemini API Rate Limits or Token Quotas have been exceeded. "
+                    "Please wait 60 seconds before retrying or upgrade your Google AI Studio tier plan."
+                )
+            else:
+                raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({api_err.code}): Google API encountered an internal glitch. Details: {str(api_err)}")
         except Exception as e:
-            # Emergency Backup Plan: If an individual batch network call breaks,
-            # dump the raw terms safely into the Review Queue so no keywords disappear.
-            for fallback_term in batch:
-                list_review.append(fallback_term)
+            raise RuntimeError(f"ERR_PIPELINE_UNKNOWN: The audit engine processing sequence broke unexpectedly. Technical details: {str(e)}")
 
-    # 5. ADVANCED ROOT NEGATIVE SELECTION & CANNIBALIZATION GUARDRAIL
-    # Separate bad terms into separate individual components to count frequencies
+    # Ensure progress finishes visually at 100%
+    if progress_bar_ui:
+        progress_bar_ui.progress(1.0)
+
+    # --- ROOT NEGATIVE SELECTION & CANNIBALIZATION GUARDRAIL ---
+    # Extract just the raw strings for our internal cross-reference matching
+    raw_irrelevant_strings = [x["Search Term"] for x in list_irrelevant]
+    raw_safe_strings = [x["Search Term"].lower().strip() for x in (list_relevant + list_review)]
+    safe_lookup_pool = set(raw_safe_strings)
+
     all_words = []
-    for term in list_irrelevant:
+    for term in raw_irrelevant_strings:
         words = re.findall(r'\b\w+\b', term.lower())
         all_words.extend(words)
         
@@ -131,27 +133,59 @@ def run_search_terms_audit(csv_file_path: str, selected_profile_key: str) -> dic
     terms_absorbed_by_roots_count = 0
     irrelevant_terms_kept_as_phrases = []
     
-    # Establish our security lookup pool from the safe arrays
-    safe_lookup_pool = set([t.lower().strip() for t in (list_relevant + list_review)])
-    
     for root in candidate_roots:
         is_safe_root = True
-        # Hard check: Scan entire safe pool. The root word can NEVER appear inside a safe string.
         for safe_term in safe_lookup_pool:
             if re.search(r'\b' + re.escape(root) + r'\b', safe_term):
                 is_safe_root = False
                 break
-                
-        # Extra constraint: Omit common connection filler words under 3 letters long
         if is_safe_root and len(root) > 2:
             approved_root_negatives.append(root)
             
-    # Audit exactly how many junk rows are safely handled by your clean roots list
-    for term in list_irrelevant:
+    for item in list_irrelevant:
+        term = item["Search Term"]
         is_absorbed = False
         for root in approved_root_negatives:
             if re.search(r'\b' + re.escape(root) + r'\b', term.lower()):
                 is_absorbed = True
                 break
         if is_absorbed:
-            terms_absorbed_by_roots_count +=
+            terms_absorbed_by_roots_count += 1
+        else:
+            irrelevant_terms_kept_as_phrases.append(term)
+            
+    notation_output_list = []
+    for root in approved_root_negatives:
+        notation_output_list.append(root.strip())
+    for phrase in irrelevant_terms_kept_as_phrases:
+        clean_phrase = phrase.strip()
+        if " " in clean_phrase:
+            notation_output_list.append(f'"{clean_phrase}"')
+        else:
+            notation_output_list.append(clean_phrase)
+            
+    # Compile root summaries for Stage 3 Tab 4
+    roots_summary_data = [{"Isolated Root Word": root, "Frequency Count": word_frequencies[root]} for root in approved_root_negatives]
+
+    total_outputted_count = len(list_relevant) + len(list_irrelevant) + len(list_review)
+    
+    return {
+        "metrics": {
+            "total_inputted": total_inputted_count,
+            "relevant_count": len(list_relevant),
+            "irrelevant_count": len(list_irrelevant),
+            "review_queue_count": len(list_review),
+            "total_outputted": total_outputted_count,
+            "integrity_check_passed": (total_inputted_count == total_outputted_count),
+            "roots_found": len(approved_root_negatives),
+            "terms_absorbed_by_roots": terms_absorbed_by_roots_count
+        },
+        "review_queue_data": [x["Search Term"] for x in list_review],
+        "copy_paste_notation": "\n".join(notation_output_list),
+        "raw_classified_records": {
+            "relevant": list_relevant,
+            "review": list_review,
+            "irrelevant": list_irrelevant,
+            "roots_summary": roots_summary_data
+        }
+    }
