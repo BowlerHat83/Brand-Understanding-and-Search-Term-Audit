@@ -5,143 +5,153 @@ import pandas as pd
 from openai import OpenAI
 import cache_manager as cm
 
+# --- SYSTEM PROMPT CONSTANTS WITH ACCURACY SAFEGUARDS ---
+BATCH_AUDIT_SYSTEM_PROMPT = (
+    "You are a conservative, line-by-line PPC Auditing Engine. Your goal is to review a "
+    "micro-batch of search terms with absolute precision against a brand blueprint.\n\n"
+    "CRITICAL ACCURACY RULES:\n"
+    "1. Evaluate each term completely independent of the terms around it.\n"
+    "2. For each term, determine its classification:\n"
+    "   - 'RELEVANT_BRAND': Contains a protected client brand name variation.\n"
+    "   - 'RELEVANT_GENERIC': Aligns perfectly with the commercial intent of the Core Offering.\n"
+    "   - 'IRRELEVANT': Mentions a competitor, or indicates wrong intent (DIY, jobs, info, blogs).\n"
+    "   - 'REVIEW_QUEUE': Only use this if the term is completely ambiguous, a random tracking ID, or impossible to determine.\n"
+    "3. Calculate an internal confidence score between 0.0 and 1.0. If your score for 'IRRELEVANT' or 'RELEVANT' is below 0.7, route the term to 'REVIEW_QUEUE'.\n"
+    "4. To eliminate context laziness, you must write your analysis/reasoning FIRST inside the JSON object before selecting the decision.\n\n"
+    "Output MUST be a strict JSON object containing a top-level key 'term_data' mapping to an array of objects. "
+    "Do not include markdown code blocks or backticks."
+)
+
+def chunk_list(lst: list, n: int):
+    """Yield successive n-sized chunks from a list."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
 def run_search_terms_audit(csv_file_path: str, selected_profile_key: str) -> dict:
     """
-    Executes the entire Tier-2 Audit Pipeline: 
-    Validates data, batches queries to LLM, routes to classification buckets,
-    and safely extracts root negative candidates without cannibalizing good traffic.
+    Executes the Tier-2 Data Audit Pipeline. Processes Google Ads reports via 
+    high-accuracy AI micro-batching, reconciles records, and safely builds root negatives.
     """
-    # 1. Fetch the absolute truth blueprint from cache
-    cached_data = cm.get_profile_by_name(selected_profile_key)
-    if not cached_data:
-        raise ValueError("Selected brand profile cache could not be found.")
+    # 1. Fetch our Absolute Truth blueprint from our Stage 1 cache
+    cached_profile = cm.get_profile_by_name(selected_profile_key)
+    if not cached_profile:
+        raise ValueError(f"Profile cache '{selected_profile_key}' could not be located.")
         
-    blueprint = cached_data["blueprint"]
+    blueprint = cached_profile["blueprint"]
     
-    # 2. Read and clean the inputted CSV data
+    # 2. Read and parse the inputted Google Ads CSV report
     df = pd.read_csv(csv_file_path)
-    df.columns = [col.lower().strip() for col in df.columns]
     
-    # Extract unique search terms and clean out empty rows
-    raw_terms = df["search term"].dropna().unique().tolist()
+    # Normalize headers to handle variable Google Ads layout exports safely
+    df.columns = [col.lower().strip() for col in df.columns]
+    if "search term" not in df.columns:
+        raise KeyError("Could not find required 'Search term' column in the uploaded CSV.")
+        
+    # Extract unique, clean terms to prevent auditing duplicate strings
+    raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
     total_inputted_count = len(raw_terms)
     
-    # 3. Batch Process via LLM (Simulated sizing here for clean grouping architecture)
-    # Inside the production app, you will loop through raw_terms in batches of 40.
-    client = OpenAI()
-    
-    system_prompt = (
-        "You are a strict, highly conservative PPC auditing algorithm. "
-        "Your sole task is to classify search terms against a business blueprint. "
-        "You must output a single, raw JSON object mapping terms to classifications. "
-        "CRITICAL: Only use 'REVIEW_QUEUE' as an emergency last resort if the term is completely ambiguous "
-        "or impossible to verify. Do not use it as a lazy option."
-    )
-    
-    # We will pass the terms array and the blueprint rules to the prompt
-    # The LLM returns a structured JSON layout like this:
-    # { "term_data": [ {"term": "...", "class": "RELEVANT_BRAND"/"RELEVANT_GENERIC"/"IRRELEVANT"/"REVIEW_QUEUE", "confidence": 0.95 } ] }
-    
-    # --- For development modeling, we initialize our structural arrays ---
+    # 3. Establish Core Classification Storage Buckets
     list_relevant = []
     list_irrelevant = []
     list_review = []
     
-    # --- PROMPT EXECUTION & ROUTING SIMULATION ---
-    # Python populates arrays based on the strict threshold (Confidence >= 0.7)
-    # If Confidence < 0.7, the system forcibly overrides the tag to REVIEW_QUEUE.
+    client = OpenAI()
     
-    # Mock assignments to show data path flow execution
-    for term in raw_terms:
-        # Lowercase for absolute safety checks
-        t_clean = term.lower().strip()
+    # 4. High-Accuracy Micro-Batching Loop (Slices text into blocks of 30)
+    micro_batches = list(chunk_list(raw_terms, 30))
+    
+    for batch in micro_batches:
+        user_prompt = f"""
+        **Brand Blueprint Context:**
+        - Brand Name: {selected_profile_key.split('|')[0].strip()}
+        - Protected Brand Variants: {", ".join(blueprint["brand_variants"])}
+        - Core Offering Boundary: {blueprint["strict_relevance_rule"]}
+        - Explicit Junk Targets: {", ".join(blueprint["explicit_negative_triggers"])}
         
-        # Purely as an architectural baseline placeholder logic before LLM pipeline calls:
-        if any(variant in t_clean for variant in blueprint["brand_variants"]):
-            list_relevant.append(term)
-        elif any(trigger in t_clean for trigger in blueprint["explicit_negative_triggers"]):
-            list_irrelevant.append(term)
-        else:
-            # Simulated edge case or default grouping bucket
-            list_review.append(term)
+        **Micro-Batch to Audit (Process each line independently):**
+        {json.dumps(batch)}
+        
+        Return a JSON object with this exact format:
+        {{
+            "term_data": [
+                {{"term": "example query", "reasoning": "why it matches or fails blueprint", "classification": "IRRELEVANT", "confidence": 0.95}}
+            ]
+        }}
+        """
+        
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": BATCH_AUDIT_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1 # Absolute minimum creativity for predictable extraction math
+            )
             
-    # 4. ADVANCED ROOT NEGATIVE SELECTION & CROSS-REFERENCE SAFETY LOOP
-    # Tokenize words from the irrelevant bucket to look for single-word root opportunities
+            # Extract array data back out of the response payload
+            payload = json.loads(response.choices[0].message.content)
+            records = payload.get("term_data", [])
+            
+            # Route items to their proper storage tables based on rules and thresholds
+            for item in records:
+                term_string = item.get("term", "").strip()
+                classification = item.get("classification", "REVIEW_QUEUE")
+                confidence = float(item.get("confidence", 0.0))
+                
+                # Security Override: Low confidence pushes items to the Review Queue automatically
+                if confidence < 0.7:
+                    list_review.append(term_string)
+                elif classification in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
+                    list_relevant.append(term_string)
+                elif classification == "IRRELEVANT":
+                    list_irrelevant.append(term_string)
+                else:
+                    list_review.append(term_string)
+                    
+        except Exception as e:
+            # Emergency Backup Plan: If an individual batch network call breaks,
+            # dump the raw terms safely into the Review Queue so no keywords disappear.
+            for fallback_term in batch:
+                list_review.append(fallback_term)
+
+    # 5. ADVANCED ROOT NEGATIVE SELECTION & CANNIBALIZATION GUARDRAIL
+    # Separate bad terms into separate individual components to count frequencies
     all_words = []
     for term in list_irrelevant:
-        # Regex to split phrases into clean individual words
         words = re.findall(r'\b\w+\b', term.lower())
         all_words.extend(words)
         
-    word_counts = collections.Counter(all_words)
+    word_frequencies = collections.Counter(all_words)
+    candidate_roots = [word for word, count in word_frequencies.items() if count > 1]
     
-    # Filter down to words that appear multiple times in junk searches
-    candidate_roots = [word for word, count in word_counts.items() if count > 1]
-    
-    # Safe arrays to isolate final outputs
     approved_root_negatives = []
-    raw_terms_captured_by_roots_count = 0
+    terms_absorbed_by_roots_count = 0
     irrelevant_terms_kept_as_phrases = []
     
-    # Create matching baseline blocks of safe strings for checking overlap
-    safe_lookup_pool = set([t.lower() for t in (list_relevant + list_review)])
+    # Establish our security lookup pool from the safe arrays
+    safe_lookup_pool = set([t.lower().strip() for t in (list_relevant + list_review)])
     
     for root in candidate_roots:
-        # ABSOLUTE GUARDRAIL: Check if the word exists anywhere inside relevant/review sets
-        is_safe = True
+        is_safe_root = True
+        # Hard check: Scan entire safe pool. The root word can NEVER appear inside a safe string.
         for safe_term in safe_lookup_pool:
             if re.search(r'\b' + re.escape(root) + r'\b', safe_term):
-                is_safe = False
+                is_safe_root = False
                 break
                 
-        if is_safe and len(root) > 2: # Keep roots meaningful (no 1 or 2 letter words)
+        # Extra constraint: Omit common connection filler words under 3 letters long
+        if is_safe_root and len(root) > 2:
             approved_root_negatives.append(root)
-        
-    # Calculate how many irrelevant terms are cleanly handled by our newly found roots
+            
+    # Audit exactly how many junk rows are safely handled by your clean roots list
     for term in list_irrelevant:
-        captured = False
+        is_absorbed = False
         for root in approved_root_negatives:
             if re.search(r'\b' + re.escape(root) + r'\b', term.lower()):
-                captured = True
+                is_absorbed = True
                 break
-        if captured:
-            raw_terms_captured_by_roots_count += 1
-        else:
-            irrelevant_terms_kept_as_phrases.append(term)
-            
-    # 5. GOOGLE ADS NOTATION COMPILER
-    # Single words -> Broad Match (no notation)
-    # Multi-words -> Phrase Match (" ")
-    notation_output_list = []
-    for root in approved_root_negatives:
-        notation_output_list.append(root) # Single root words stay broad
-        
-    for phrase in irrelevant_terms_kept_as_phrases:
-        clean_phrase = phrase.strip()
-        if " " in clean_phrase:
-            notation_output_list.append(f'"{clean_phrase}"') # Multi-word gets phrase tags
-        else:
-            notation_output_list.append(clean_phrase)
-            
-    # 6. VERIFICATION TOTALS RECONCILIATION
-    total_outputted_count = len(list_relevant) + len(list_irrelevant) + len(list_review)
-    
-    # Bundle the entire state to hand off to the interface
-    return {
-        "metrics": {
-            "total_inputted": total_inputted_count,
-            "relevant_count": len(list_relevant),
-            "irrelevant_count": len(list_irrelevant),
-            "review_queue_count": len(list_review),
-            "total_outputted": total_outputted_count,
-            "integrity_check_passed": (total_inputted_count == total_outputted_count),
-            "roots_found": len(approved_root_negatives),
-            "terms_absorbed_by_roots": raw_terms_captured_by_roots_count
-        },
-        "data_buckets": {
-            "relevant": list_relevant,
-            "review_queue": list_review,
-            "irrelevant_raw": list_irrelevant
-        },
-        "final_negatives_notation": notation_output_list
-    }
+        if is_absorbed:
+            terms_absorbed_by_roots_count +=
