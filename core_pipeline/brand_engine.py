@@ -1,74 +1,68 @@
-import os
 import json
-from openai import OpenAI
+from google import genai
+from google.genai import errors
+from . import cache_manager as cm
+
+# Precision Strategic Prompt
+BRAND_BLUEPRINT_SYSTEM_PROMPT = (
+    "You are an expert PPC Core Strategist. Your job is to analyze a brand's core offering "
+    "and landing page domain to establish strict, conservative semantic boundaries for search terms.\n\n"
+    "CRITICAL GENERATION RULES:\n"
+    "1. BRAND VARIANTS: Extract the core brand name and common misspellings/variations.\n"
+    "2. EXPLICIT NEGATIVE TRIGGERS: Identify high-risk intent vectors that mean waste for this specific business model (e.g., if B2B, look for jobs, resume, DIY, cheap, free, undergraduate, courses).\n"
+    "3. PREDICTED COMPETITORS: List real, highly probable market competitors offering this exact service.\n"
+    "4. STRICT RELEVANCE RULE: Write a one-sentence 'Golden Rule' that a human auditor can use to judge if a search phrase has valid commercial intent.\n\n"
+    "Output MUST be a strict JSON object matching the requested structure perfectly."
+)
 
 def generate_brand_profile(brand_name: str, core_offering: str, landing_page: str) -> dict:
     """
-    Connects to OpenAI to generate a highly tailored, initial draft of the
-    brand blueprint based on the client's brand name, offering, and domain.
+    Analyzes brand parameters and generates a strategic blueprint using native Gemini client rules.
     """
+    # Initialize official Gemini client (automatically inherits GEMINI_API_KEY from Streamlit secrets)
+    client = genai.Client()
     
-    # Initialize the client. This automatically reads the OPENAI_API_KEY environment variable.
-    client = OpenAI()
-    
-    # Establish the specialized context for the AI
-    system_prompt = (
-        "You are an expert PPC Strategy Engine. Your task is to analyze a business footprint "
-        "and draft a high-accuracy Brand Ruleset Blueprint for a Google Ads account. "
-        "You must output ONLY a valid JSON object matching the requested schema. "
-        "Do not include any conversational text, markdown formatting, or backticks (like ```json)."
-    )
-    
-    # Define the precise rules of engagement for the niche
     user_prompt = f"""
-    Analyze these three core brand attributes:
-    - Official Brand Name: "{brand_name}"
-    - Core Ad Group Offering: "{core_offering}"
-    - Landing Page/Domain: "{landing_page}"
+    Analyze the following business entity details to build a strict negative and positive relevance framework:
+    - Brand Name: {brand_name}
+    - Ad Group Core Offering Target: {core_offering}
+    - Target Landing Page context reference: {landing_page}
     
-    Using your advanced marketing and industry knowledge, predict the common negative keyword 
-    pitfalls, adjacent irrelevant searches, and standard competitors for this specific niche.
-    
-    You must return a JSON object with these exact keys:
-    {{
-        "brand_variants": ["3-5 common abbreviations, sub-brands, or misspellings of the brand name to absolutely protect"],
-        "explicit_negative_triggers": ["10-15 highly contextual junk words that ruin conversion intent for THIS specific offering"],
-        "predicted_competitors": ["5-7 direct industry rivals or market alternatives for this specific product/service vertical"],
-        "strict_relevance_rule": "A clear, one-sentence rule defining exactly what a high-intent commercial query looks like for this offering."
-    }}
+    Provide the output in a strict JSON format with these exact keys:
+    "brand_variants" (array of strings),
+    "explicit_negative_triggers" (array of strings),
+    "predicted_competitors" (array of strings),
+    "strict_relevance_rule" (string)
     """
     
     try:
-        # Request a structured JSON object from the model
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.3 # Low temperature ensures consistent, analytical reasoning
+        # Native Gemini JSON call matching audit_engine
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=user_prompt,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=BRAND_BLUEPRINT_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.2
+            ),
         )
         
-        # Parse the string response into a native Python dictionary
-        raw_content = response.choices[0].message.content
-        return json.loads(raw_content)
-
-    except Exception as e:
-        # 100% dynamic fallback with NO hardcoded words. 
-        # If the API fails, it generates contextual safety terms purely based on your exact input.
-        return {
-            "brand_variants": [brand_name.lower().strip()],
-            "explicit_negative_triggers": [
-                "free", "cheap", "diy", "jobs", "salary", "course", 
-                f"how to make {core_offering.lower()}", 
-                f"{core_offering.lower()} templates",
-                f"cheap {core_offering.lower()}"
-            ],
-            "predicted_competitors": [],
-            "strict_relevance_rule": f"Focus strictly on high-intent commercial terms for {core_offering}."
-        }
+        # Parse output safely
+        blueprint_data = json.loads(response.text)
+        return blueprint_data
         
-
-
-
+    except errors.APIError as api_err:
+        # Pass structured error codes up to the UI layout safely
+        if api_err.code == 429:
+            raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED: Generation rate limits hit.")
+        else:
+            raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({api_err.code}): Engine failed.")
+            
+    except Exception as e:
+        # Fallback empty profile layout template to keep pipeline from breaking if parsing hits a snag
+        return {
+            "brand_variants": [brand_name.strip()],
+            "explicit_negative_triggers": ["jobs", "salary", "free", "diy", "download", "cheap"],
+            "predicted_competitors": [],
+            "strict_relevance_rule": f"Must explicitly indicate direct commercial intent to purchase or inquire about {core_offering}."
+        }
