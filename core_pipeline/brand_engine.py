@@ -68,6 +68,10 @@ def generate_brand_profile(brand_name: str, core_offering: str, landing_page: st
             "predicted_competitors": [],
             "strict_relevance_rule": f"Focus strictly on high-intent commercial terms for {core_offering}."
         }
-            "predicted_competitors": [],
-            "strict_relevance_rule": f"Focus strictly on high-intent commercial terms for {core_offering}."
+        "predicted_competitors": [],
+        "strict_relevance_rule": f"Focus strictly on high-intent commercial terms for {core_offering}."
         }
+
+
+
+
