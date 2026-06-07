@@ -48,7 +48,7 @@ def run_search_terms_audit(csv_file_path: str, selected_profile_key: str, progre
     # Initialize the official Gemini Client
     client = genai.Client()
     
-    micro_batches = list(chunk_list(raw_terms, 30))
+    micro_batches = list(chunk_list(raw_terms, 50))
     total_batches = len(micro_batches)
     
     # Process batches
