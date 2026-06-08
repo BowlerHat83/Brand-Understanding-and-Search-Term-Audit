@@ -108,7 +108,7 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     client = genai.Client(api_key=api_key)
 
     # REDUCED BATCH SIZE
-    micro_batches = list(chunk_list(raw_terms, 15))
+    micro_batches = list(chunk_list(raw_terms, 10))
 
     total_batches = len(micro_batches)
 
