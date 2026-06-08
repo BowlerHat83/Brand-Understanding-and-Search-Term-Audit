@@ -3,6 +3,7 @@ import json
 import collections
 import pandas as pd
 import os
+import time
 
 from google import genai
 from google.genai import errors
@@ -131,22 +132,69 @@ Search Terms:
 {json.dumps(batch)}
 """
 
-        try:
+        import time
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=user_prompt,
-                config=GenerateContentConfig(
-                    system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
+        MAX_RETRIES = 5
 
-            if not response.text:
-                raise RuntimeError(
-                    "ERR_EMPTY_RESPONSE: Gemini returned an empty response."
+        response = None
+
+        for attempt in range(MAX_RETRIES):
+
+            try:
+
+                response = client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=user_prompt,
+                    config=GenerateContentConfig(
+                        system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                    ),
                 )
+
+                break
+
+            except errors.APIError as api_err:
+
+                err_code = getattr(api_err, "code", "UNKNOWN")
+
+                # RETRYABLE GOOGLE FAILURES
+                if err_code in [500, 503]:
+
+                    if attempt < MAX_RETRIES - 1:
+
+                        sleep_time = 2 ** attempt
+
+                        if status_text_ui:
+                            status_text_ui.text(
+                                f"Gemini overloaded. Retrying in {sleep_time}s..."
+                            )
+
+                        time.sleep(sleep_time)
+
+                        continue
+
+                    raise RuntimeError(
+                        f"ERR_GEMINI_SERVER_BREAK ({err_code}): "
+                        f"Google Gemini failed after multiple retries."
+                    )
+
+                elif err_code == 429:
+
+                    raise RuntimeError(
+                        "ERR_GEMINI_QUOTA_EXCEEDED"
+                    )
+
+                else:
+
+                    raise RuntimeError(
+                        f"ERR_GEMINI_SERVER_BREAK ({err_code}): {str(api_err)}"
+                    )
+
+                    if not response.text:
+                        raise RuntimeError(
+                            "ERR_EMPTY_RESPONSE: Gemini returned an empty response."
+                        )
 
             cleaned_response = clean_json_response(response.text)
 
