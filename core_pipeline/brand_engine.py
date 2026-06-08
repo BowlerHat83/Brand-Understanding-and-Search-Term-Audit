@@ -19,7 +19,7 @@ def generate_brand_profile(brand_name: str, core_offering: str, landing_page: st
     """
     Analyzes brand parameters and generates a strategic blueprint using native Gemini client rules.
     """
-    # Initialize official Gemini client (automatically inherits GEMINI_API_KEY from Streamlit secrets)
+    # Initialize official Gemini client
     client = genai.Client()
     
     user_prompt = f"""
@@ -52,14 +52,18 @@ def generate_brand_profile(brand_name: str, core_offering: str, landing_page: st
         return blueprint_data
         
     except errors.APIError as api_err:
-        # Pass structured error codes up to the UI layout safely
-        if api_err.code == 429:
+        # Safely extract status code or message to prevent (None) errors
+        err_code = getattr(api_err, 'code', None) or "UNKNOWN"
+        err_message = getattr(api_err, 'message', str(api_err))
+        
+        if err_code == 429 or "429" in err_message:
             raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED: Generation rate limits hit.")
-        else:
-            raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({api_err.code}): Engine failed.")
+        
+        # Raise the actual error message so you can see it in Streamlit
+        raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({err_code}): {err_message}")
             
     except Exception as e:
-        # Fallback empty profile layout template to keep pipeline from breaking if parsing hits a snag
+        # Fallback empty profile layout template if JSON parsing or unexpected bugs happen
         return {
             "brand_variants": [brand_name.strip()],
             "explicit_negative_triggers": ["jobs", "salary", "free", "diy", "download", "cheap"],
