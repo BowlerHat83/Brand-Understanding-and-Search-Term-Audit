@@ -183,37 +183,41 @@ elif st.session_state.active_stage == 2:
 
 st.header("🔬 Stage 3: The Accountability & Knowledge Ledger")
 
-# Ensure we actually have processed audit data sitting in the session state first
-if "audit_results" in st.session_state and st.session_state.audit_results is not None:
-    st.success("✨ Search terms audit complete! Your deep-dive workbook is compiled.")
-    
-    # 1. Grab the results dictionary saved from Stage 2
-    audit_data = st.session_state.audit_results 
-    
+if (
+    "audit_results" in st.session_state
+    and st.session_state.audit_results is not None
+):
+
+    st.success(
+        "✨ Search terms audit complete! Your deep-dive workbook is compiled."
+    )
+
+    audit_data = st.session_state.audit_results
+
     try:
-        # 2. Build the Excel workbook completely in memory using an open byte stream
-        buffer = io.BytesIO()
-        
-        # Call your core logging service to assemble the 4 tabs
-        workbook = generate_deep_dive_workbook(audit_data)
-        workbook.save(buffer)
-        buffer.seek(0)  # Rewind the pointer to the beginning of the file stream
-        
-        # 3. The bulletproof Streamlit download mechanism
+
+        buffer = generate_deep_dive_workbook(audit_data)
+
         st.download_button(
             label="📥 Download Complete Accountability Ledger (.xlsx)",
             data=buffer,
-            file_name=f"ppc_audit_ledger_{st.session_state.get('current_brand', 'brand')}.xlsx",
+            file_name="ppc_audit_ledger.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary"
         )
-        
-        st.info("💡 Tip: This file is fully compatible with Google Sheets. Upload it directly to share your transparency audit with clients.")
+
+        st.info(
+            "💡 Tip: This file is fully compatible with Google Sheets."
+        )
 
     except Exception as e:
-        st.error(f"Failed to generate download file: {str(e)}")
+        st.error(
+            f"Failed to generate download file: {str(e)}"
+        )
 
 else:
-    st.info("Waiting for Stage 2 to complete processing before generating the ledger file.")
+    st.info(
+        "Waiting for Stage 2 to complete processing."
+    )
 
 
