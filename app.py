@@ -43,7 +43,7 @@ if st.session_state.active_stage == 1:
         col1, col2, col3 = st.columns(3)
         brand_name = col1.text_input("Brand Name", placeholder="e.g., Apex Solar")
         core_offering = col2.text_input("Ad Group Core Offering", placeholder="e.g., Commercial Solar Installations")
-        landing_page = col3.text_input("Landing Page Link / Domain", placeholder="e.g., apexsolar.com/b2b")
+        landing_page = col3.text_input("Landing Page Link / Domain", placeholder="e.g., [apexsolar.com/b2b](https://apexsolar.com/b2b)")
 
         if st.button("Draft Initial Profile via AI Assistant", type="primary"):
             if brand_name and core_offering and landing_page:
@@ -90,11 +90,9 @@ elif st.session_state.active_stage == 2:
     uploaded_file = st.file_uploader("Upload your raw Google Ads Search Terms report (CSV Format):", type=["csv"])
 
     if uploaded_file and st.button("Run Audit Engine & Safety Verification", type="primary"):
-        # COSMETIC UPGRADE: Draw placeholder containers for progress tracking elements
         progress_bar = st.progress(0.0)
         status_text = st.empty()
         
-        # ERROR HANDLING MATRIX: Watch execution for pipeline faults
         try:
             results = run_search_terms_audit(
                 uploaded_file, 
@@ -106,11 +104,14 @@ elif st.session_state.active_stage == 2:
             status_text.success("🚀 Complete! Audit processing calculations finalized successfully.")
             
         except RuntimeError as runtime_err:
-            # Catch custom domain engine faults (Quota limits, API crashes)
             status_text.empty()
             progress_bar.empty()
             
             err_msg = str(runtime_err)
+            
+            # Debug banner to expose underlying errors cleanly
+            st.warning(f"📋 **System Pipeline Log Output:**\n`{err_msg}`")
+            
             if "ERR_GEMINI_QUOTA_EXCEEDED" in err_msg:
                 st.error("🛑 **API RATE LIMIT EXCEEDED (Error Code: 429)**")
                 st.warning(
@@ -176,7 +177,7 @@ elif st.session_state.active_stage == 2:
         )
         
         st.write("---")
-        st.subheader("⚖️ Auditability & Accountability Deep-Dive")
+        st.subheader("🛡️ Auditability & Accountability Deep-Dive")
         if st.button("🔬 Show Understanding Breakdown"):
             st.session_state.active_stage = 3
             st.rerun()
@@ -195,7 +196,6 @@ if (
     audit_data = st.session_state.audit_results
 
     try:
-
         buffer = generate_deep_dive_workbook(audit_data)
 
         st.download_button(
@@ -219,5 +219,3 @@ else:
     st.info(
         "Waiting for Stage 2 to complete processing."
     )
-
-
