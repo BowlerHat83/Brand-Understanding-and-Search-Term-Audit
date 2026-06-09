@@ -1,7 +1,8 @@
 import json
+import time
+import random
 from google import genai
 from google.genai import errors
-from . import cache_manager as cm
 
 # Precision Strategic Prompt
 BRAND_BLUEPRINT_SYSTEM_PROMPT = (
@@ -18,8 +19,8 @@ BRAND_BLUEPRINT_SYSTEM_PROMPT = (
 def generate_brand_profile(brand_name: str, core_offering: str, landing_page: str) -> dict:
     """
     Analyzes brand parameters and generates a strategic blueprint using native Gemini client rules.
+    Equipped with exponential backoff to handle temporary 429 and 503 limits safely.
     """
-    # Initialize official Gemini client
     client = genai.Client()
     
     user_prompt = f"""
@@ -35,38 +36,44 @@ def generate_brand_profile(brand_name: str, core_offering: str, landing_page: st
     "strict_relevance_rule" (string)
     """
     
-    try:
-        # Native Gemini JSON call matching audit_engine
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=user_prompt,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=BRAND_BLUEPRINT_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                temperature=0.2
-            ),
-        )
-        
-        # Parse output safely
-        blueprint_data = json.loads(response.text)
-        return blueprint_data
-        
-    except errors.APIError as api_err:
-        # Safely extract status code or message to prevent (None) errors
-        err_code = getattr(api_err, 'code', None) or "UNKNOWN"
-        err_message = getattr(api_err, 'message', str(api_err))
-        
-        if err_code == 429 or "429" in err_message:
-            raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED: Generation rate limits hit.")
-        
-        # Raise the actual error message so you can see it in Streamlit
-        raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({err_code}): {err_message}")
+    max_retries = 5
+    base_delay = 2.0
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=user_prompt,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=BRAND_BLUEPRINT_SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                    temperature=0.2
+                ),
+            )
+            return json.loads(response.text)
             
-    except Exception as e:
-        # Fallback empty profile layout template if JSON parsing or unexpected bugs happen
-        return {
-            "brand_variants": [brand_name.strip()],
-            "explicit_negative_triggers": ["jobs", "salary", "free", "diy", "download", "cheap"],
-            "predicted_competitors": [],
-            "strict_relevance_rule": f"Must explicitly indicate direct commercial intent to purchase or inquire about {core_offering}."
-        }
+        except errors.APIError as api_err:
+            err_code = getattr(api_err, 'code', None) or "UNKNOWN"
+            err_message = getattr(api_err, 'message', str(api_err))
+            
+            if err_code in [429, 503] or "429" in err_message or "503" in err_message:
+                if attempt < max_retries - 1:
+                    sleep_time = (base_delay * (2 ** attempt)) + random.uniform(0, 1)
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    raise RuntimeError(f"ERR_GEMINI_QUOTA_EXCEEDED: Generation limits hit permanently after {max_retries} attempts.")
+            raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({err_code}): {err_message}")
+                
+        except json.JSONDecodeError:
+            break
+            
+        except Exception as e:
+            raise e
+
+    return {
+        "brand_variants": [brand_name.strip()],
+        "explicit_negative_triggers": ["jobs", "salary", "free", "diy", "download", "cheap"],
+        "predicted_competitors": [],
+        "strict_relevance_rule": f"Must explicitly indicate direct commercial intent to purchase or inquire about {core_offering}."
+    }
