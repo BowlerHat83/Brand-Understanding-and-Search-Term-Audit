@@ -194,7 +194,8 @@ Search Terms:
                     if not response.text:
                         raise RuntimeError(
                             "ERR_EMPTY_RESPONSE: Gemini returned an empty response."
-                        )
+                    )
+                
 
             cleaned_response = clean_json_response(response.text)
 
