@@ -4,13 +4,12 @@ import collections
 import pandas as pd
 import os
 import time
+import random
 
 from google import genai
 from google.genai import errors
 from google.genai.types import GenerateContentConfig
-
 from . import cache_manager as cm
-
 
 BATCH_AUDIT_SYSTEM_PROMPT = (
     "You are a conservative, line-by-line PPC Auditing Engine. Your goal is to review a "
@@ -37,88 +36,50 @@ BATCH_AUDIT_SYSTEM_PROMPT = (
     "}"
 )
 
-
 def chunk_list(lst: list, n: int):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-
 def clean_json_response(raw_text: str):
     raw_text = raw_text.strip()
-
     if raw_text.startswith("```json"):
-        raw_text = raw_text.replace("```json", "")
-        raw_text = raw_text.replace("```", "")
-        raw_text = raw_text.strip()
-
+        raw_text = raw_text.replace("```json", "").replace("```", "").strip()
     return raw_text
 
-
-def run_search_terms_audit(csv_file, selected_profile_key: str,
-                           progress_bar_ui=None,
-                           status_text_ui=None) -> dict:
-
+def run_search_terms_audit(csv_file, selected_profile_key: str, progress_bar_ui=None, status_text_ui=None) -> dict:
     cached_profile = cm.get_profile_by_name(selected_profile_key)
-
     if not cached_profile:
-        raise ValueError(
-            f"Profile cache '{selected_profile_key}' could not be located."
-        )
+        raise ValueError(f"Profile cache '{selected_profile_key}' could not be located.")
 
     blueprint = cached_profile["blueprint"]
 
-    # SAFER CSV LOAD
     try:
         df = pd.read_csv(csv_file)
     except Exception as e:
-        raise RuntimeError(
-            f"ERR_CSV_READ_FAILURE: Failed reading uploaded CSV.\n{str(e)}"
-        )
+        raise RuntimeError(f"ERR_CSV_READ_FAILURE: Failed reading uploaded CSV.\n{str(e)}")
 
     df.columns = [col.lower().strip() for col in df.columns]
-
     if "search term" not in df.columns:
-        raise KeyError(
-            "ERR_MISSING_COLUMN: Could not find required 'Search term' column."
-        )
+        raise KeyError("ERR_MISSING_COLUMN: Could not find required 'Search term' column.")
 
-    raw_terms = (
-        df["search term"]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .unique()
-        .tolist()
-    )
-
+    raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
     total_inputted_count = len(raw_terms)
 
-    list_relevant = []
-    list_irrelevant = []
-    list_review = []
+    list_relevant, list_irrelevant, list_review = [], [], []
 
-    # AUTHENTICATED CLIENT
     api_key = os.getenv("GOOGLE_API_KEY")
-
     if not api_key:
-        raise RuntimeError(
-            "ERR_MISSING_API_KEY: GOOGLE_API_KEY environment variable not found."
-        )
+        raise RuntimeError("ERR_MISSING_API_KEY: GOOGLE_API_KEY environment variable not found.")
 
     client = genai.Client(api_key=api_key)
-
-    # REDUCED BATCH SIZE
     micro_batches = list(chunk_list(raw_terms, 30))
     total_batches = len(micro_batches)
 
     for idx, batch in enumerate(micro_batches):
-
         if progress_bar_ui and status_text_ui:
             progress_percent = (idx) / total_batches
             progress_bar_ui.progress(progress_percent)
-            status_text_ui.text(
-                f"Processing batch {idx + 1} of {total_batches}..."
-            )
+            status_text_ui.text(f"Processing batch {idx + 1} of {total_batches}...")
 
         user_prompt = f"""
 Brand Blueprint Context:
@@ -130,147 +91,85 @@ Brand Blueprint Context:
 Search Terms:
 {json.dumps(batch)}
 """
-
         MAX_RETRIES = 5
         response = None
 
-        # Wrap everything in a try block to handle top-level batch exceptions cleanly
-        try:
-            for attempt in range(MAX_RETRIES):
-                try:
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=user_prompt,
-                        config=GenerateContentConfig(
-                            system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
-                            response_mime_type="application/json",
-                            temperature=0.1,
-                        ),
-                    )
-                    break
-
-                except errors.APIError as api_err:
-                    err_code = getattr(api_err, "status_code", "UNKNOWN")
-
-                    # RETRYABLE GOOGLE FAILURES
-                    if err_code in [500, 503]:
-                        if attempt < MAX_RETRIES - 1:
-                            sleep_time = 2 ** attempt
-                            if status_text_ui:
-                                status_text_ui.text(
-                                    f"Gemini overloaded. Retrying in {sleep_time}s..."
-                                )
-                            time.sleep(sleep_time)
-                            continue
-
-                        raise RuntimeError(
-                            f"ERR_GEMINI_SERVER_BREAK ({err_code}): "
-                            f"Google Gemini failed after multiple retries."
-                        )
-
-                    elif err_code == 429:
-                        raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED")
-                    else:
-                        raise RuntimeError(
-                            f"ERR_GEMINI_SERVER_BREAK ({err_code}): {str(api_err)}"
-                        )
-
-            # Ensure response is valid after loop finishes
-            if not response or not response.text:
-                raise RuntimeError(
-                    "ERR_EMPTY_RESPONSE: Gemini returned an empty response."
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=user_prompt,
+                    config=GenerateContentConfig(
+                        system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                    ),
                 )
+                break
+            except errors.APIError as api_err:
+                err_code = getattr(api_err, "code", None) or "UNKNOWN"
+                err_message = getattr(api_err, "message", str(api_err))
 
-            cleaned_response = clean_json_response(response.text)
+                if err_code in [429, 500, 503] or "429" in err_message or "503" in err_message:
+                    if attempt < MAX_RETRIES - 1:
+                        sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5)
+                        if status_text_ui:
+                            status_text_ui.text(f"Rate limit / Traffic hiccup ({err_code}). Retrying in {sleep_time:.1f}s...")
+                        time.sleep(sleep_time)
+                        continue
+                    else:
+                        raise RuntimeError(f"ERR_GEMINI_QUOTA_EXCEEDED: Exhausted total connections ({MAX_RETRIES}) at batch {idx + 1}.")
+                else:
+                    raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({err_code}): {err_message}")
+            except Exception as inner_err:
+                raise RuntimeError(f"ERR_BATCH_EXECUTION: {str(inner_err)}")
+
+        if not response or not response.text:
+            raise RuntimeError("ERR_EMPTY_RESPONSE: Gemini returned an empty response.")
+
+        cleaned_response = clean_json_response(response.text)
+        try:
+            payload = json.loads(cleaned_response)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"ERR_INVALID_JSON_RESPONSE:\n\n{cleaned_response}")
+
+        records = payload.get("term_data", [])
+        for item in records:
+            term_string = str(item.get("term", "")).strip()
+            classification = str(item.get("classification", "REVIEW_QUEUE")).strip()
 
             try:
-                payload = json.loads(cleaned_response)
-            except json.JSONDecodeError:
-                raise RuntimeError(
-                    f"ERR_INVALID_JSON_RESPONSE:\n\n{cleaned_response}"
-                )
+                confidence = float(item.get("confidence", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                confidence = 0.0
 
-            if not isinstance(payload, dict):
-                raise RuntimeError(
-                    "ERR_INVALID_SCHEMA: Gemini response was not a JSON object."
-                )
+            record = {"Search Term": term_string, "Reasoning": str(item.get("reasoning", "")), "Confidence Score": confidence}
 
-            if "term_data" not in payload:
-                raise RuntimeError(
-                    f"ERR_SCHEMA_VIOLATION:\n\n{payload}"
-                )
+            if confidence < 0.7:
+                list_review.append(record)
+            elif classification in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
+                list_relevant.append(record)
+            elif classification == "IRRELEVANT":
+                list_irrelevant.append(record)
+            else:
+                list_review.append(record)
 
-            records = payload.get("term_data", [])
-
-            for item in records:
-                term_string = str(item.get("term", "")).strip()
-                classification = str(
-                    item.get("classification", "REVIEW_QUEUE")
-                ).strip()
-
-                try:
-                    confidence = float(
-                        item.get("confidence", 0.0) or 0.0
-                    )
-                except (TypeError, ValueError):
-                    confidence = 0.0
-
-                reasoning = str(item.get("reasoning", ""))
-                record = {
-                    "Search Term": term_string,
-                    "Reasoning": reasoning,
-                    "Confidence Score": confidence
-                }
-
-                if confidence < 0.7:
-                    list_review.append(record)
-                elif classification in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
-                    list_relevant.append(record)
-                elif classification == "IRRELEVANT":
-                    list_irrelevant.append(record)
-                else:
-                    list_review.append(record)
-
-        except errors.APIError as api_err:
-            err_code = getattr(api_err, "status_code", "UNKNOWN")
-            if err_code == 429:
-                raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED")
-            raise RuntimeError(
-                f"ERR_GEMINI_SERVER_BREAK ({err_code}): {str(api_err)}"
-            )
-        except Exception as e:
-            # Prevent re-wrapping clean custom exceptions
-            if "ERR_GEMINI" in str(e) or "ERR_SCHEMA" in str(e):
-                raise e
-            raise RuntimeError(
-                f"ERR_PIPELINE_UNKNOWN:\n{str(e)}"
-            )
+        if idx < total_batches - 1:
+            time.sleep(1.0) # Free-tier safety pacer
 
     if progress_bar_ui:
         progress_bar_ui.progress(1.0)
 
-    raw_irrelevant_strings = [
-        x["Search Term"] for x in list_irrelevant
-    ]
-
-    raw_safe_strings = [
-        x["Search Term"].lower().strip()
-        for x in (list_relevant + list_review)
-    ]
-
+    raw_irrelevant_strings = [x["Search Term"] for x in list_irrelevant]
+    raw_safe_strings = [x["Search Term"].lower().strip() for x in (list_relevant + list_review)]
     safe_lookup_pool = set(raw_safe_strings)
     all_words = []
 
     for term in raw_irrelevant_strings:
-        words = re.findall(r'\b\w+\b', term.lower())
-        all_words.extend(words)
+        all_words.extend(re.findall(r'\b\w+\b', term.lower()))
 
     word_frequencies = collections.Counter(all_words)
-
-    candidate_roots = [
-        word for word, count in word_frequencies.items()
-        if count > 1
-    ]
+    candidate_roots = [word for word, count in word_frequencies.items() if count > 1]
 
     approved_root_negatives = []
     terms_absorbed_by_roots_count = 0
@@ -282,49 +181,28 @@ Search Terms:
             if re.search(r'\b' + re.escape(root) + r'\b', safe_term):
                 is_safe_root = False
                 break
-
         if is_safe_root and len(root) > 2:
             approved_root_negatives.append(root)
 
     for item in list_irrelevant:
         term = item["Search Term"]
         is_absorbed = False
-
         for root in approved_root_negatives:
             if re.search(r'\b' + re.escape(root) + r'\b', term.lower()):
                 is_absorbed = True
                 break
-
         if is_absorbed:
             terms_absorbed_by_roots_count += 1
         else:
             irrelevant_terms_kept_as_phrases.append(term)
 
-    notation_output_list = []
-
-    for root in approved_root_negatives:
-        notation_output_list.append(root.strip())
-
+    notation_output_list = [root.strip() for root in approved_root_negatives]
     for phrase in irrelevant_terms_kept_as_phrases:
         clean_phrase = phrase.strip()
-        if " " in clean_phrase:
-            notation_output_list.append(f'"{clean_phrase}"')
-        else:
-            notation_output_list.append(clean_phrase)
+        notation_output_list.append(f'"{clean_phrase}"' if " " in clean_phrase else clean_phrase)
 
-    roots_summary_data = [
-        {
-            "Isolated Root Word": root,
-            "Frequency Count": word_frequencies[root]
-        }
-        for root in approved_root_negatives
-    ]
-
-    total_outputted_count = (
-        len(list_relevant)
-        + len(list_irrelevant)
-        + len(list_review)
-    )
+    roots_summary_data = [{"Isolated Root Word": root, "Frequency Count": word_frequencies[root]} for root in approved_root_negatives]
+    total_outputted_count = len(list_relevant) + len(list_irrelevant) + len(list_review)
 
     return {
         "metrics": {
@@ -333,17 +211,11 @@ Search Terms:
             "irrelevant_count": len(list_irrelevant),
             "review_queue_count": len(list_review),
             "total_outputted": total_outputted_count,
-            "integrity_check_passed": (
-                total_inputted_count == total_outputted_count
-            ),
+            "integrity_check_passed": (total_inputted_count == total_outputted_count),
             "roots_found": len(approved_root_negatives),
-            "terms_absorbed_by_roots": (
-                terms_absorbed_by_roots_count
-            )
+            "terms_absorbed_by_roots": terms_absorbed_by_roots_count
         },
-        "review_queue_data": [
-            x["Search Term"] for x in list_review
-        ],
+        "review_queue_data": [x["Search Term"] for x in list_review],
         "copy_paste_notation": "\n".join(notation_output_list),
         "raw_classified_records": {
             "relevant": list_relevant,
