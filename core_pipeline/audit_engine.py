@@ -239,6 +239,9 @@ Search Terms:
                 f"ERR_GEMINI_SERVER_BREAK ({err_code}): {str(api_err)}"
             )
         except Exception as e:
+            # Prevent re-wrapping clean custom exceptions
+            if "ERR_GEMINI" in str(e) or "ERR_SCHEMA" in str(e):
+                raise e
             raise RuntimeError(
                 f"ERR_PIPELINE_UNKNOWN:\n{str(e)}"
             )
