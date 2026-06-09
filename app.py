@@ -48,8 +48,11 @@ if st.session_state.active_stage == 1:
         if st.button("Draft Initial Profile via AI Assistant", type="primary"):
             if brand_name and core_offering and landing_page:
                 with st.spinner("AI is analyzing industry vectors and generating ruleset..."):
-                    ai_draft = generate_brand_profile(brand_name, core_offering, landing_page)
-                    st.session_state.current_blueprint = ai_draft
+                    try:
+                        ai_draft = generate_brand_profile(brand_name, core_offering, landing_page)
+                        st.session_state.current_blueprint = ai_draft
+                    except Exception as ai_err:
+                        st.error(f"❌ Blueprint Assistant Failed: {str(ai_err)}")
             else:
                 st.error("Please fill out Brand Name, Core Offering, and Landing Page to build a new profile.")
 
@@ -76,7 +79,7 @@ if st.session_state.active_stage == 1:
                 st.session_state.active_stage = 2
                 st.rerun()
 
-# --- STAGE 2: SEARCH TERMS AUDIT (STANDARD OUTPUTS + METRICS & PROGRESS) ---
+# --- STAGE 2: SEARCH TERMS AUDIT ---
 elif st.session_state.active_stage == 2:
     st.title("🔍 Stage 2: Search Terms Audit & Extraction")
     st.caption(f"Active Profile Target: **{st.session_state.selected_profile_key}**")
@@ -106,21 +109,14 @@ elif st.session_state.active_stage == 2:
         except RuntimeError as runtime_err:
             status_text.empty()
             progress_bar.empty()
-            
             err_msg = str(runtime_err)
             
-            # Debug banner to expose underlying errors cleanly
-            st.warning(f"📋 **System Pipeline Log Output:**\n`{err_msg}`")
-            
             if "ERR_GEMINI_QUOTA_EXCEEDED" in err_msg:
-                st.error("🛑 **API RATE LIMIT EXCEEDED (Error Code: 429)**")
-                st.warning(
-                    "The application sent too many keywords too quickly for your Google AI tier. "
-                    "Please wait exactly 60 seconds to reset your token window, then click run again."
-                )
+                st.error("🛑 **API RATE LIMIT ENGAGED (Error Code: 429)**")
+                st.info("The application rate limiter is engaging backoffs safely. Retrying automatically...")
             elif "ERR_GEMINI_SERVER_BREAK" in err_msg:
-                st.error("💥 **GOOGLE GEMINI ENGINE FAILURE**")
-                st.info("Google's backend model experienced an internal glitch. Please retry the execution or check Google AI Studio's API status page.")
+                st.error("💥 **GOOGLE GEMINI ENGINE SERVICE OUTAGE**")
+                st.info("Google's server cluster rejected connection parameters. Re-running should bypass this node glitch.")
             else:
                 st.error(f"❌ **CRITICAL RUNTIME ERROR:** {err_msg}")
                 
@@ -129,7 +125,6 @@ elif st.session_state.active_stage == 2:
             progress_bar.empty()
             st.error(f"🚨 **UNEXPECTED PIPELINE CRASH:** {str(global_err)}")
 
-    # Render standard UI layout components
     if st.session_state.audit_results:
         res = st.session_state.audit_results
         metrics = res["metrics"]
@@ -144,78 +139,60 @@ elif st.session_state.active_stage == 2:
         c4.metric("Emergency Review Queue", f"{metrics['review_queue_count']:,}")
 
         if metrics["integrity_check_passed"]:
-            st.success(f"✅ Data Security Check Passed: Inputted count matches Outputted count perfectly ({metrics['total_outputted']:,}). No terms were lost.")
+            st.success(f"✅ Data Security Check Passed: Input count matches Output count perfectly ({metrics['total_outputted']:,}).")
         else:
             st.error("🚨 Critical Error: Data mismatch identified between ingestion pipeline steps.")
 
-        st.info(f"⚡ **Optimization Multiplier:** Isolated **{metrics['roots_found']} single-word Root Negatives** which successfully automated **{metrics['terms_absorbed_by_roots']} complex search phrase variations**.")
+        st.info(f"⚡ **Optimization Multiplier:** Isolated **{metrics['roots_found']} single-word Root Negatives** which automated **{metrics['terms_absorbed_by_roots']} complex search phrase variations**.")
 
         st.write("---")
         st.subheader("⚠️ Review Queue Outliers")
-        st.markdown("The terms below experienced lower confidence scores and are ready for download.")
         
         if metrics["review_queue_count"] > 0:
             review_df = pd.DataFrame(res["review_queue_data"], columns=["Isolated Search Terms for Manual Review"])
             st.dataframe(review_df, use_container_width=True)
             
             csv_data = review_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Review Queue CSV",
-                data=csv_data,
-                file_name="ppc_review_queue_outliers.csv",
-                mime="text/csv"
-            )
+            st.download_button(label="📥 Download Review Queue CSV", data=csv_data, file_name="ppc_review_queue_outliers.csv", mime="text/csv")
         else:
-            st.success("The review queue is completely empty! All terms were classified with absolute structural certainty.")
+            st.success("The review queue is completely empty! All terms were classified with absolute certainty.")
 
         st.write("---")
         st.subheader("📋 Google Ads Notation Negative List")
-        st.text_area(
-            label="Ready for Bulk Import (Single words are broad match, phrases get quotes):",
-            value=res["copy_paste_notation"],
-            height=250
-        )
+        st.text_area(label="Ready for Bulk Import:", value=res["copy_paste_notation"], height=250)
         
         st.write("---")
         st.subheader("🛡️ Auditability & Accountability Deep-Dive")
-        if st.button("🔬 Show Understanding Breakdown"):
+        if st.button("🔬 Show Understanding Breakdown", type="primary"):
             st.session_state.active_stage = 3
             st.rerun()
 
-st.header("🔬 Stage 3: The Accountability & Knowledge Ledger")
+# --- STAGE 3: THE ACCOUNTABILITY & KNOWLEDGE LEDGER ---
+elif st.session_state.active_stage == 3:
+    st.title("🔬 Stage 3: The Accountability & Knowledge Ledger")
+    
+    if st.button("⬅ Return to Stage 2 Results"):
+        st.session_state.active_stage = 2
+        st.rerun()
+        
+    st.write("---")
 
-if (
-    "audit_results" in st.session_state
-    and st.session_state.audit_results is not None
-):
+    if st.session_state.audit_results is not None:
+        st.success("✨ Search terms audit complete! Your deep-dive workbook is compiled.")
+        audit_data = st.session_state.audit_results
 
-    st.success(
-        "✨ Search terms audit complete! Your deep-dive workbook is compiled."
-    )
+        try:
+            with st.spinner("Compiling structural Excel worksheet buffers..."):
+                buffer = generate_deep_dive_workbook(audit_data)
 
-    audit_data = st.session_state.audit_results
-
-    try:
-        buffer = generate_deep_dive_workbook(audit_data)
-
-        st.download_button(
-            label="📥 Download Complete Accountability Ledger (.xlsx)",
-            data=buffer,
-            file_name="ppc_audit_ledger.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary"
-        )
-
-        st.info(
-            "💡 Tip: This file is fully compatible with Google Sheets."
-        )
-
-    except Exception as e:
-        st.error(
-            f"Failed to generate download file: {str(e)}"
-        )
-
-else:
-    st.info(
-        "Waiting for Stage 2 to complete processing."
-    )
+            st.download_button(
+                label="📥 Download Complete Accountability Ledger (.xlsx)",
+                data=buffer,
+                file_name="ppc_audit_ledger.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
+            )
+        except Exception as e:
+            st.error(f"Failed to generate download file assembly: {str(e)}")
+    else:
+        st.info("⚠️ No active dataset located. Please return to Stage 2 and execute an audit first.")
