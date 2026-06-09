@@ -22,7 +22,8 @@ BATCH_AUDIT_SYSTEM_PROMPT = (
     "   - 'IRRELEVANT': Mentions a competitor, or indicates wrong intent (DIY, jobs, info, blogs).\n"
     "   - 'REVIEW_QUEUE': Only use this if the term is completely ambiguous or tracking data.\n"
     "3. Calculate an internal confidence score between 0.0 and 1.0.\n"
-    "4. Output MUST be valid JSON.\n\n"
+    "4. CRITICAL: Keep the 'reasoning' value incredibly concise (under 5 words). E.g., 'Competitor term', 'Exact intent match', 'Contains DIY intent'.\n"
+    "5. Output MUST be valid JSON.\n\n"
     "Output format:\n"
     "{\n"
     '  "term_data": [\n'
