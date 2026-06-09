@@ -27,12 +27,12 @@ BATCH_AUDIT_SYSTEM_PROMPT = (
     "Output format:\n"
     "{\n"
     '  "term_data": [\n'
-    "    {\n"
-    '      "term": "example",\n'
-    '      "classification": "IRRELEVANT",\n'
-    '      "confidence": 0.95,\n'
-    '      "reasoning": "Contains DIY intent."\n'
-    "    }\n"
+    "     {\n"
+    '       "term": "example",\n'
+    '       "classification": "IRRELEVANT",\n'
+    '       "confidence": 0.95,\n'
+    '       "reasoning": "Contains DIY intent."\n'
+    "     }\n"
     "  ]\n"
     "}"
 )
@@ -109,7 +109,6 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
 
     # REDUCED BATCH SIZE
     micro_batches = list(chunk_list(raw_terms, 10))
-
     total_batches = len(micro_batches)
 
     for idx, batch in enumerate(micro_batches):
@@ -132,70 +131,55 @@ Search Terms:
 {json.dumps(batch)}
 """
 
-        import time
-
         MAX_RETRIES = 5
-
         response = None
 
-        for attempt in range(MAX_RETRIES):
-
-            try:
-
-                response = client.models.generate_content(
-                    model="gemini-1.5-flash",
-                    contents=user_prompt,
-                    config=GenerateContentConfig(
-                        system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
-                        response_mime_type="application/json",
-                        temperature=0.1,
-                    ),
-                )
-
-                break
-
-            except errors.APIError as api_err:
-
-                err_code = getattr(api_err, "code", "UNKNOWN")
-
-                # RETRYABLE GOOGLE FAILURES
-                if err_code in [500, 503]:
-
-                    if attempt < MAX_RETRIES - 1:
-
-                        sleep_time = 2 ** attempt
-
-                        if status_text_ui:
-                            status_text_ui.text(
-                                f"Gemini overloaded. Retrying in {sleep_time}s..."
-                            )
-
-                        time.sleep(sleep_time)
-
-                        continue
-
-                    raise RuntimeError(
-                        f"ERR_GEMINI_SERVER_BREAK ({err_code}): "
-                        f"Google Gemini failed after multiple retries."
+        # Wrap everything in a try block to handle top-level batch exceptions cleanly
+        try:
+            for attempt in range(MAX_RETRIES):
+                try:
+                    response = client.models.generate_content(
+                        model="gemini-1.5-flash",
+                        contents=user_prompt,
+                        config=GenerateContentConfig(
+                            system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
+                            response_mime_type="application/json",
+                            temperature=0.1,
+                        ),
                     )
+                    break
 
-                elif err_code == 429:
+                except errors.APIError as api_err:
+                    err_code = getattr(api_err, "code", "UNKNOWN")
 
-                    raise RuntimeError(
-                        "ERR_GEMINI_QUOTA_EXCEEDED"
-                    )
+                    # RETRYABLE GOOGLE FAILURES
+                    if err_code in [500, 503]:
+                        if attempt < MAX_RETRIES - 1:
+                            sleep_time = 2 ** attempt
+                            if status_text_ui:
+                                status_text_ui.text(
+                                    f"Gemini overloaded. Retrying in {sleep_time}s..."
+                                )
+                            time.sleep(sleep_time)
+                            continue
 
-                else:
-
-                    raise RuntimeError(
-                        f"ERR_GEMINI_SERVER_BREAK ({err_code}): {str(api_err)}"
-                    )
-
-                    if not response.text:
                         raise RuntimeError(
-                            "ERR_EMPTY_RESPONSE: Gemini returned an empty response."
-                    )
-                
+                            f"ERR_GEMINI_SERVER_BREAK ({err_code}): "
+                            f"Google Gemini failed after multiple retries."
+                        )
+
+                    elif err_code == 429:
+                        raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED")
+                    else:
+                        raise RuntimeError(
+                            f"ERR_GEMINI_SERVER_BREAK ({err_code}): {str(api_err)}"
+                        )
+
+            # Ensure response is valid after loop finishes
+            if not response or not response.text:
+                raise RuntimeError(
+                    "ERR_EMPTY_RESPONSE: Gemini returned an empty response."
+                )
 
             cleaned_response = clean_json_response(response.text)
 
@@ -219,9 +203,7 @@ Search Terms:
             records = payload.get("term_data", [])
 
             for item in records:
-
                 term_string = str(item.get("term", "")).strip()
-
                 classification = str(
                     item.get("classification", "REVIEW_QUEUE")
                 ).strip()
@@ -234,7 +216,6 @@ Search Terms:
                     confidence = 0.0
 
                 reasoning = str(item.get("reasoning", ""))
-
                 record = {
                     "Search Term": term_string,
                     "Reasoning": reasoning,
@@ -243,32 +224,20 @@ Search Terms:
 
                 if confidence < 0.7:
                     list_review.append(record)
-
-                elif classification in [
-                    "RELEVANT_BRAND",
-                    "RELEVANT_GENERIC"
-                ]:
+                elif classification in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
                     list_relevant.append(record)
-
                 elif classification == "IRRELEVANT":
                     list_irrelevant.append(record)
-
                 else:
                     list_review.append(record)
 
         except errors.APIError as api_err:
-
             err_code = getattr(api_err, "code", "UNKNOWN")
-
             if err_code == 429:
-                raise RuntimeError(
-                    "ERR_GEMINI_QUOTA_EXCEEDED"
-                )
-
+                raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED")
             raise RuntimeError(
                 f"ERR_GEMINI_SERVER_BREAK ({err_code}): {str(api_err)}"
             )
-
         except Exception as e:
             raise RuntimeError(
                 f"ERR_PIPELINE_UNKNOWN:\n{str(e)}"
@@ -287,7 +256,6 @@ Search Terms:
     ]
 
     safe_lookup_pool = set(raw_safe_strings)
-
     all_words = []
 
     for term in raw_irrelevant_strings:
@@ -302,15 +270,11 @@ Search Terms:
     ]
 
     approved_root_negatives = []
-
     terms_absorbed_by_roots_count = 0
-
     irrelevant_terms_kept_as_phrases = []
 
     for root in candidate_roots:
-
         is_safe_root = True
-
         for safe_term in safe_lookup_pool:
             if re.search(r'\b' + re.escape(root) + r'\b', safe_term):
                 is_safe_root = False
@@ -320,9 +284,7 @@ Search Terms:
             approved_root_negatives.append(root)
 
     for item in list_irrelevant:
-
         term = item["Search Term"]
-
         is_absorbed = False
 
         for root in approved_root_negatives:
@@ -341,9 +303,7 @@ Search Terms:
         notation_output_list.append(root.strip())
 
     for phrase in irrelevant_terms_kept_as_phrases:
-
         clean_phrase = phrase.strip()
-
         if " " in clean_phrase:
             notation_output_list.append(f'"{clean_phrase}"')
         else:
