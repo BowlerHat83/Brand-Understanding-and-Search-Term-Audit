@@ -26,12 +26,12 @@ BATCH_AUDIT_SYSTEM_PROMPT = (
     "Output format:\n"
     "{\n"
     '  "term_data": [\n'
-    "     {\n"
-    '       "term": "example",\n'
-    '       "classification": "IRRELEVANT",\n'
-    '       "confidence": 0.95,\n'
-    '       "reasoning": "Contains DIY intent."\n'
-    "     }\n"
+    "      {\n"
+    '        "term": "example",\n'
+    '        "classification": "IRRELEVANT",\n'
+    '        "confidence": 0.95,\n'
+    '        "reasoning": "Contains DIY intent."\n'
+    "      }\n"
     "  ]\n"
     "}"
 )
@@ -120,107 +120,4 @@ Search Terms:
                     else:
                         raise RuntimeError(f"ERR_GEMINI_QUOTA_EXCEEDED: Exhausted total connections ({MAX_RETRIES}) at batch {idx + 1}.")
                 else:
-                    raise RuntimeError(f"ERR_GEMINI_SERVER_BREAK ({err_code}): {err_message}")
-            except Exception as inner_err:
-                raise RuntimeError(f"ERR_BATCH_EXECUTION: {str(inner_err)}")
-
-        if not response or not response.text:
-            raise RuntimeError("ERR_EMPTY_RESPONSE: Gemini returned an empty response.")
-
-        cleaned_response = clean_json_response(response.text)
-        try:
-            payload = json.loads(cleaned_response)
-        except json.JSONDecodeError:
-            raise RuntimeError(f"ERR_INVALID_JSON_RESPONSE:\n\n{cleaned_response}")
-
-        records = payload.get("term_data", [])
-        for item in records:
-            term_string = str(item.get("term", "")).strip()
-            classification = str(item.get("classification", "REVIEW_QUEUE")).strip()
-
-            try:
-                confidence = float(item.get("confidence", 0.0) or 0.0)
-            except (TypeError, ValueError):
-                confidence = 0.0
-
-            record = {"Search Term": term_string, "Reasoning": str(item.get("reasoning", "")), "Confidence Score": confidence}
-
-            if confidence < 0.7:
-                list_review.append(record)
-            elif classification in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
-                list_relevant.append(record)
-            elif classification == "IRRELEVANT":
-                list_irrelevant.append(record)
-            else:
-                list_review.append(record)
-
-        if idx < total_batches - 1:
-            time.sleep(1.0) # Free-tier safety pacer
-
-    if progress_bar_ui:
-        progress_bar_ui.progress(1.0)
-
-    raw_irrelevant_strings = [x["Search Term"] for x in list_irrelevant]
-    raw_safe_strings = [x["Search Term"].lower().strip() for x in (list_relevant + list_review)]
-    safe_lookup_pool = set(raw_safe_strings)
-    all_words = []
-
-    for term in raw_irrelevant_strings:
-        all_words.extend(re.findall(r'\b\w+\b', term.lower()))
-
-    word_frequencies = collections.Counter(all_words)
-    candidate_roots = [word for word, count in word_frequencies.items() if count > 1]
-
-    approved_root_negatives = []
-    terms_absorbed_by_roots_count = 0
-    irrelevant_terms_kept_as_phrases = []
-
-    for root in candidate_roots:
-        is_safe_root = True
-        for safe_term in safe_lookup_pool:
-            if re.search(r'\b' + re.escape(root) + r'\b', safe_term):
-                is_safe_root = False
-                break
-        if is_safe_root and len(root) > 2:
-            approved_root_negatives.append(root)
-
-    for item in list_irrelevant:
-        term = item["Search Term"]
-        is_absorbed = False
-        for root in approved_root_negatives:
-            if re.search(r'\b' + re.escape(root) + r'\b', term.lower()):
-                is_absorbed = True
-                break
-        if is_absorbed:
-            terms_absorbed_by_roots_count += 1
-        else:
-            irrelevant_terms_kept_as_phrases.append(term)
-
-    notation_output_list = [root.strip() for root in approved_root_negatives]
-    for phrase in irrelevant_terms_kept_as_phrases:
-        clean_phrase = phrase.strip()
-        notation_output_list.append(f'"{clean_phrase}"' if " " in clean_phrase else clean_phrase)
-
-    roots_summary_data = [{"Isolated Root Word": root, "Frequency Count": word_frequencies[root]} for root in approved_root_negatives]
-    total_outputted_count = len(list_relevant) + len(list_irrelevant) + len(list_review)
-
-    return {
-        "metrics": {
-            "total_inputted": total_inputted_count,
-            "relevant_count": len(list_relevant),
-            "irrelevant_count": len(list_irrelevant),
-            "review_queue_count": len(list_review),
-            "total_outputted": total_outputted_count,
-            "integrity_check_passed": (total_inputted_count == total_outputted_count),
-            "roots_found": len(approved_root_negatives),
-            "terms_absorbed_by_roots": terms_absorbed_by_roots_count
-        },
-        "review_queue_data": [x["Search Term"] for x in list_review],
-        "copy_paste_notation": "\n".join(notation_output_list),
-        "raw_classified_records": {
-            "relevant": list_relevant,
-            "review": list_review,
-            "irrelevant": list_irrelevant,
-            "roots_summary": roots_summary_data
-        }
-    }
+                    raise RuntimeError(f"ERR_GEMINI_
