@@ -139,7 +139,7 @@ Search Terms:
             for attempt in range(MAX_RETRIES):
                 try:
                     response = client.models.generate_content(
-                        model="gemini-1.5-flash",
+                        model="gemini-2.0-flash",
                         contents=user_prompt,
                         config=GenerateContentConfig(
                             system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
