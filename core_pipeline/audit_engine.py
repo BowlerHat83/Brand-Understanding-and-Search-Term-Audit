@@ -150,7 +150,7 @@ Search Terms:
                     break
 
                 except errors.APIError as api_err:
-                    err_code = getattr(api_err, "code", "UNKNOWN")
+                    err_code = getattr(api_err, "status_code", "UNKNOWN")
 
                     # RETRYABLE GOOGLE FAILURES
                     if err_code in [500, 503]:
@@ -232,7 +232,7 @@ Search Terms:
                     list_review.append(record)
 
         except errors.APIError as api_err:
-            err_code = getattr(api_err, "code", "UNKNOWN")
+            err_code = getattr(api_err, "status_code", "UNKNOWN")
             if err_code == 429:
                 raise RuntimeError("ERR_GEMINI_QUOTA_EXCEEDED")
             raise RuntimeError(
