@@ -33,13 +33,13 @@ if st.session_state.active_stage == 1:
         st.session_state.current_blueprint = cached_data["blueprint"]
         st.session_state.selected_profile_key = selected_option
         
-        st.success(f"🔓 **Fast-Track Active:** Successfully loaded approved ruleset for '{selected_option}'.")
+        st.success(f" **Fast-Track Active:** Successfully loaded approved ruleset for '{selected_option}'.")
         if st.button("Proceed Directly to Search Terms Audit ➔", type="primary"):
             st.session_state.active_stage = 2
             st.rerun()
     else:
         st.write("---")
-        st.subheader("📋 New Profile Configuration")
+        st.subheader("New Profile Configuration")
         col1, col2, col3 = st.columns(3)
         brand_name = col1.text_input("Brand Name", placeholder="e.g., Apex Solar")
         core_offering = col2.text_input("Ad Group Core Offering", placeholder="e.g., Commercial Solar Installations")
@@ -104,7 +104,7 @@ elif st.session_state.active_stage == 2:
                 status_text_ui=status_text
             )
             st.session_state.audit_results = results
-            status_text.success("🚀 Complete! Audit processing calculations finalized successfully.")
+            status_text.success(" Complete! Audit processing calculations finalized successfully.")
             
         except RuntimeError as runtime_err:
             status_text.empty()
@@ -112,7 +112,7 @@ elif st.session_state.active_stage == 2:
             err_msg = str(runtime_err)
             
             if "ERR_GEMINI_QUOTA_EXCEEDED" in err_msg:
-                st.error("🛑 **API RATE LIMIT ENGAGED (Error Code: 429)**")
+                st.error("💥 **API RATE LIMIT ENGAGED (Error Code: 429)**")
                 st.info("The application rate limiter is engaging backoffs safely. Retrying automatically...")
             elif "ERR_GEMINI_SERVER_BREAK" in err_msg:
                 st.error("💥 **GOOGLE GEMINI ENGINE SERVICE OUTAGE**")
