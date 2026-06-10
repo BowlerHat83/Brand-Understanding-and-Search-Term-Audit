@@ -14,17 +14,24 @@ from . import cache_manager as cm
 BATCH_AUDIT_SYSTEM_PROMPT = """
 Classify each term independently.
 
-Return JSON:
+Return ONLY valid JSON in this format:
+
 {
-  term_data:[
+  "term_data": [
     {
-      term:"",
-      cls:"RELEVANT_BRAND|RELEVANT_GENERIC|IRRELEVANT|REVIEW",
-      conf:0-1,
-      why:"max 5 words"
+      "term": "",
+      "cls": "RELEVANT_BRAND|RELEVANT_GENERIC|IRRELEVANT|REVIEW",
+      "conf": 0.0,
+      "why": ""
     }
   ]
 }
+
+Rules:
+- cls MUST be one of the allowed values
+- conf MUST be between 0 and 1
+- No extra keys
+- No explanation outside JSON
 """
 
 
@@ -49,10 +56,53 @@ def _process_batch(client, batch, profile_key, blueprint):
 
 
 # -----------------------------
+# VALIDATION (NEW CRITICAL LAYER)
+# -----------------------------
+VALID_CLS = {
+    "RELEVANT_BRAND",
+    "RELEVANT_GENERIC",
+    "IRRELEVANT",
+    "REVIEW"
+}
+
+
+def _validate_item(item):
+    """Hard schema gate — prevents silent corruption."""
+    if not isinstance(item, dict):
+        return None
+
+    term = str(item.get("term", "")).strip()
+    if not term:
+        return None
+
+    cls = item.get("cls")
+    conf = item.get("conf")
+
+    # enforce class validity
+    if cls not in VALID_CLS:
+        cls = "REVIEW"
+
+    # enforce confidence validity
+    try:
+        conf = float(conf)
+    except:
+        conf = 0.0
+
+    conf = max(0.0, min(1.0, conf))
+
+    return {
+        "Search Term": term,
+        "cls": cls,
+        "Confidence Score": conf,
+        "Reasoning": item.get("why", "")
+    }
+
+
+# -----------------------------
 # MAIN PIPELINE
 # -----------------------------
 def run_search_terms_audit(csv_file, selected_profile_key: str,
-                           progress_bar_ui=None, status_text_ui=None) -> dict:
+                           progress_bar_ui=None, status_text_ui=None):
 
     cached_profile = cm.get_profile_by_name(selected_profile_key)
     if not cached_profile:
@@ -67,7 +117,6 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
         raise KeyError("Missing 'Search term' column")
 
     raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
-
     total_input = len(raw_terms)
 
     # -----------------------------
@@ -95,7 +144,17 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
 
             try:
                 payload = future.result()
-                results.extend(payload.get("term_data", []))
+
+                # ❗ HARD FIX: validate structure BEFORE trusting it
+                term_data = payload.get("term_data", None)
+
+                if not isinstance(term_data, list):
+                    raise ValueError("Invalid term_data format")
+
+                for item in term_data:
+                    validated = _validate_item(item)
+                    if validated:
+                        results.append(validated)
 
             except Exception:
                 failed_batches.append(batch)
@@ -110,105 +169,85 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
         for batch in failed_batches:
             try:
                 payload = _process_batch(client, batch, selected_profile_key, blueprint)
-                results.extend(payload.get("term_data", []))
+
+                term_data = payload.get("term_data", [])
+                for item in term_data:
+                    validated = _validate_item(item)
+                    if validated:
+                        results.append(validated)
+
             except Exception:
                 results.extend([
-                    {"term": t, "cls": "REVIEW", "conf": 0, "why": "batch_failed"}
+                    {
+                        "Search Term": t,
+                        "cls": "REVIEW",
+                        "Confidence Score": 0.0,
+                        "Reasoning": "batch_failed"
+                    }
                     for t in batch
                 ])
 
     # -----------------------------
-    # CLASSIFICATION
+    # CLASSIFICATION (SIMPLIFIED)
     # -----------------------------
     relevant, irrelevant, review = [], [], []
 
     for item in results:
-        term = str(item.get("term", "")).strip()
-        if not term:
-            continue
-
-        cls = item.get("cls", "REVIEW")
-        conf = float(item.get("conf", 0) or 0)
+        cls = item["cls"]
 
         record = {
-            "Search Term": term,
-            "Reasoning": item.get("why", ""),
-            "Confidence Score": conf,
+            "Search Term": item["Search Term"],
+            "Reasoning": item["Reasoning"],
+            "Confidence Score": item["Confidence Score"]
         }
 
-        if conf < 0.7 or cls == "REVIEW":
-            review.append(record)
-        elif cls in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
+        # ONLY cls determines routing
+        if cls in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
             relevant.append(record)
+
         elif cls == "IRRELEVANT":
             irrelevant.append(record)
+
         else:
             review.append(record)
 
     # -----------------------------
-    # ROOT EXTRACTION
+    # ROOT EXTRACTION (UNCHANGED)
     # -----------------------------
     raw_irrelevant = [x["Search Term"] for x in irrelevant]
 
-    def tokenize(text):
-        return set(text.lower().split())
-
-    def stem(w):
-        w = w.lower()
-        if w.endswith("ies"):
-            return w[:-3] + "i"
-        if w.endswith("es"):
-            return w[:-2]
-        if w.endswith("s") and len(w) > 3:
-            return w[:-1]
-        return w
-
-    # build word frequency from irrelevants
     words = []
     for t in raw_irrelevant:
         words.extend(t.lower().split())
 
     freq = collections.Counter(words)
 
-    # roots = repeated meaningful tokens
     roots = {
         w for w, c in freq.items()
         if c > 1 and len(w) > 2
     }
 
-    # -----------------------------
-    # COVERAGE LOGIC (KEY FIX)
-    # -----------------------------
+    def tokenize(text):
+        return set(text.lower().split())
+
     def is_covered(term: str) -> bool:
-        term_tokens = tokenize(term)
-        return any(root in term_tokens for root in roots)
+        return any(root in tokenize(term) for root in roots)
 
-    # -----------------------------
-    # BUILD EXPORT
-    # -----------------------------
-    covered = []
-    leftover_irrelevants = []
+    leftover_irrelevants = [
+        t for t in raw_irrelevant if not is_covered(t)
+    ]
 
-    for term in raw_irrelevant:
-        if is_covered(term):
-            covered.append(term)
-        else:
-            leftover_irrelevants.append(term)
-
-    # final negative export = roots + only uncovered terms
     negative_export = "\n".join(
         sorted(roots) + leftover_irrelevants
     )
-    
+
     # -----------------------------
     # METRICS
     # -----------------------------
-    total_output = len(relevant) + len(irrelevant) + len(review)
-
     return {
         "metrics": {
             "total_inputted": total_input,
-            "total_outputted": total_output,
+            "total_outputted": len(relevant) + len(irrelevant) + len(review),
             "relevant_count": len(relevant),
             "irrelevant_count": len(irrelevant),
             "review_queue_count": len(review),
@@ -217,7 +256,6 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
 
         "review_queue_data": [x["Search Term"] for x in review],
 
-        # ✅ FIXED: now includes BOTH roots + leftover irrelevants
         "copy_paste_notation": negative_export,
 
         "raw_classified_records": {
