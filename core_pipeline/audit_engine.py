@@ -4,7 +4,6 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from google import genai
-from .gemini_utils import gemini_json
 from . import cache_manager as cm
 
 
@@ -14,7 +13,7 @@ from . import cache_manager as cm
 BATCH_AUDIT_SYSTEM_PROMPT = """
 Classify each term independently.
 
-Return ONLY valid JSON in this format:
+Return ONLY valid JSON:
 
 {
   "term_data": [
@@ -28,74 +27,41 @@ Return ONLY valid JSON in this format:
 }
 
 Rules:
-- cls MUST be one of the allowed values
-- conf MUST be between 0 and 1
-- No extra keys
-- No explanation outside JSON
+- cls must be exactly one of the allowed values
+- conf must be 0–1 float
+- no extra keys
+- no text outside JSON
 """
 
 
 # -----------------------------
-# BATCH PROCESSOR
+# PROCESS BATCH (NO WRAPPER)
 # -----------------------------
 def _process_batch(client, batch, profile_key, blueprint):
-    payload = json.dumps({
+    payload = {
         "brand": profile_key.split("|")[0].strip(),
         "bp": blueprint,
         "terms": batch
-    })
+    }
 
-    return gemini_json(
-        client=client,
+    response = client.models.generate_content(
         model="gemini-2.5-flash",
-        system_prompt=BATCH_AUDIT_SYSTEM_PROMPT,
-        payload=payload,
-        temperature=0.1,
-        retries=3
+        contents=json.dumps(payload),
+        config={
+            "system_instruction": BATCH_AUDIT_SYSTEM_PROMPT,
+            "response_mime_type": "application/json",
+            "temperature": 0.1,
+        },
     )
 
+    raw = response.text.strip()
 
-# -----------------------------
-# VALIDATION (NEW CRITICAL LAYER)
-# -----------------------------
-VALID_CLS = {
-    "RELEVANT_BRAND",
-    "RELEVANT_GENERIC",
-    "IRRELEVANT",
-    "REVIEW"
-}
+    data = json.loads(raw)
 
+    if "term_data" not in data or not isinstance(data["term_data"], list):
+        raise ValueError("Invalid schema from Gemini")
 
-def _validate_item(item):
-    """Hard schema gate — prevents silent corruption."""
-    if not isinstance(item, dict):
-        return None
-
-    term = str(item.get("term", "")).strip()
-    if not term:
-        return None
-
-    cls = item.get("cls")
-    conf = item.get("conf")
-
-    # enforce class validity
-    if cls not in VALID_CLS:
-        cls = "REVIEW"
-
-    # enforce confidence validity
-    try:
-        conf = float(conf)
-    except:
-        conf = 0.0
-
-    conf = max(0.0, min(1.0, conf))
-
-    return {
-        "Search Term": term,
-        "cls": cls,
-        "Confidence Score": conf,
-        "Reasoning": item.get("why", "")
-    }
+    return data
 
 
 # -----------------------------
@@ -114,14 +80,10 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     df.columns = [c.lower().strip() for c in df.columns]
 
     if "search term" not in df.columns:
-        raise KeyError("Missing 'Search term' column")
+        raise KeyError("Missing 'search term' column")
 
     raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
-    total_input = len(raw_terms)
 
-    # -----------------------------
-    # BATCHING
-    # -----------------------------
     BATCH_SIZE = 20
     batches = [raw_terms[i:i + BATCH_SIZE] for i in range(0, len(raw_terms), BATCH_SIZE)]
 
@@ -145,16 +107,23 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
             try:
                 payload = future.result()
 
-                # ❗ HARD FIX: validate structure BEFORE trusting it
-                term_data = payload.get("term_data", None)
+                for item in payload["term_data"]:
+                    if not isinstance(item, dict):
+                        continue
 
-                if not isinstance(term_data, list):
-                    raise ValueError("Invalid term_data format")
+                    term = str(item.get("term", "")).strip()
+                    cls = str(item.get("cls", "")).strip()
+                    conf = float(item.get("conf", 0) or 0)
 
-                for item in term_data:
-                    validated = _validate_item(item)
-                    if validated:
-                        results.append(validated)
+                    if not term:
+                        continue
+
+                    results.append({
+                        "Search Term": term,
+                        "cls": cls,
+                        "Confidence Score": conf,
+                        "Reasoning": item.get("why", "")
+                    })
 
             except Exception:
                 failed_batches.append(batch)
@@ -165,44 +134,36 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     # -----------------------------
     # RETRY FAILED BATCHES
     # -----------------------------
-    if failed_batches:
-        for batch in failed_batches:
-            try:
-                payload = _process_batch(client, batch, selected_profile_key, blueprint)
+    for batch in failed_batches:
+        try:
+            payload = _process_batch(client, batch, selected_profile_key, blueprint)
 
-                term_data = payload.get("term_data", [])
-                for item in term_data:
-                    validated = _validate_item(item)
-                    if validated:
-                        results.append(validated)
+            for item in payload["term_data"]:
+                results.append({
+                    "Search Term": str(item.get("term", "")).strip(),
+                    "cls": str(item.get("cls", "")).strip(),
+                    "Confidence Score": float(item.get("conf", 0) or 0),
+                    "Reasoning": item.get("why", "")
+                })
 
-            except Exception:
-                results.extend([
-                    {
-                        "Search Term": t,
-                        "cls": "REVIEW",
-                        "Confidence Score": 0.0,
-                        "Reasoning": "batch_failed"
-                    }
-                    for t in batch
-                ])
+        except Exception:
+            results.extend([
+                {
+                    "Search Term": t,
+                    "cls": "REVIEW",
+                    "Confidence Score": 0.0,
+                    "Reasoning": "batch_failed"
+                }
+                for t in batch
+            ])
 
     # -----------------------------
-    # CLASSIFICATION (SIMPLIFIED)
+    # SIMPLE CLASSIFICATION (NO FUZZY LOGIC)
     # -----------------------------
     relevant, irrelevant, review = [], [], []
 
     for item in results:
-        cls_raw = str(item.get("cls", "")).strip().upper()
-
-        if "RELEVANT_BRAND" in cls_raw:
-            cls = "RELEVANT_BRAND"
-        elif "RELEVANT_GENERIC" in cls_raw:
-            cls = "RELEVANT_GENERIC"
-        elif "IRRELEVANT" in cls_raw:
-            cls = "IRRELEVANT"
-        else:
-            cls = "REVIEW"
+        cls = item.get("cls", "REVIEW")
 
         record = {
             "Search Term": item["Search Term"],
@@ -210,7 +171,6 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
             "Confidence Score": item["Confidence Score"]
         }
 
-        # ONLY cls determines routing
         if cls in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
             relevant.append(record)
 
@@ -239,23 +199,19 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     def tokenize(text):
         return set(text.lower().split())
 
-    def is_covered(term: str) -> bool:
-        return any(root in tokenize(term) for root in roots)
+    def is_covered(term):
+        return any(r in tokenize(term) for r in roots)
 
-    leftover_irrelevants = [
-        t for t in raw_irrelevant if not is_covered(t)
-    ]
+    leftover = [t for t in raw_irrelevant if not is_covered(t)]
 
-    negative_export = "\n".join(
-        sorted(roots) + leftover_irrelevants
-    )
+    negative_export = "\n".join(sorted(roots) + leftover)
 
     # -----------------------------
-    # METRICS
+    # RETURN
     # -----------------------------
     return {
         "metrics": {
-            "total_inputted": total_input,
+            "total_inputted": len(raw_terms),
             "total_outputted": len(relevant) + len(irrelevant) + len(review),
             "relevant_count": len(relevant),
             "irrelevant_count": len(irrelevant),
