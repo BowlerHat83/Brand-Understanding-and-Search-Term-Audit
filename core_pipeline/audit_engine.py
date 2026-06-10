@@ -73,7 +73,7 @@ def run_search_terms_audit(csv_file, selected_profile_key: str, progress_bar_ui=
         raise RuntimeError("ERR_MISSING_API_KEY: GOOGLE_API_KEY environment variable not found.")
 
     client = genai.Client(api_key=api_key)
-    micro_batches = list(chunk_list(raw_terms, 30))
+    micro_batches = list(chunk_list(raw_terms, 75))
     total_batches = len(micro_batches)
 
     for idx, batch in enumerate(micro_batches):
