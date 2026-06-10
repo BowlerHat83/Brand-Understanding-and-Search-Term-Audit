@@ -29,12 +29,14 @@ def _cache_path(cache_key: str) -> Path:
 
 def _load_cache(cache_key: str):
     path = _cache_path(cache_key)
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return None
-    return None
+
+    if not path.exists():
+        return None
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
 
 
 def _save_cache(cache_key: str, data: dict):
@@ -43,7 +45,35 @@ def _save_cache(cache_key: str, data: dict):
 
 
 # -----------------------------
-# SYSTEM PROMPT (STRICT)
+# CACHE UI HELPERS
+# -----------------------------
+def list_cached_blueprints() -> list:
+    """
+    Returns all cached blueprint keys (file-based).
+    """
+    if not CACHE_DIR.exists():
+        return []
+
+    return [f.stem for f in CACHE_DIR.glob("*.json")]
+
+
+def load_cached_blueprint(cache_key: str):
+    """
+    Loads a cached blueprint safely.
+    """
+    path = _cache_path(cache_key)
+
+    if not path.exists():
+        return None
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+# -----------------------------
+# SYSTEM PROMPT
 # -----------------------------
 BRAND_BLUEPRINT_SYSTEM_PROMPT = """
 You are an expert PPC Core Strategist.
@@ -82,7 +112,7 @@ def generate_brand_profile(
     cache_key = _make_cache_key(brand_name, core_offering, landing_page)
 
     # -----------------------------
-    # CACHE HIT (FREE)
+    # CACHE HIT
     # -----------------------------
     cached = _load_cache(cache_key)
     if cached:
@@ -115,7 +145,7 @@ Return strict JSON blueprint.
             data = json.loads(response.text)
 
             # -----------------------------
-            # BASIC VALIDATION (FAIL SAFE)
+            # VALIDATION
             # -----------------------------
             required_keys = [
                 "brand_variants",
@@ -129,7 +159,7 @@ Return strict JSON blueprint.
                     raise ValueError(f"Missing key: {key}")
 
             # -----------------------------
-            # CACHE SAVE
+            # SAVE CACHE
             # -----------------------------
             _save_cache(cache_key, data)
 
@@ -152,7 +182,7 @@ Return strict JSON blueprint.
             raise RuntimeError(f"Unexpected error: {e}")
 
     # -----------------------------
-    # FALLBACK (NEVER BREAK PIPELINE)
+    # FALLBACK
     # -----------------------------
     fallback = {
         "brand_variants": [brand_name.strip()],
