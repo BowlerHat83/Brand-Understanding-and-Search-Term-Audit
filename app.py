@@ -36,6 +36,7 @@ def init_state():
 
 init_state()
 
+
 # =========================================================
 # STAGE 1 — BLUEPRINT
 # =========================================================
@@ -62,7 +63,6 @@ if st.session_state.stage == 1:
             st.session_state.stage = 2
             st.rerun()
 
-
     # ----------------------------
     # CREATE NEW
     # ----------------------------
@@ -86,7 +86,6 @@ if st.session_state.stage == 1:
 
                 except Exception as e:
                     st.error(str(e))
-
 
         # ----------------------------
         # EDIT BLUEPRINT
@@ -118,7 +117,6 @@ if st.session_state.stage == 1:
                 bp.get("strict_relevance_rule", "")
             )
 
-
             if st.button("Save & Continue"):
 
                 final = {
@@ -148,7 +146,6 @@ if st.session_state.stage == 1:
 elif st.session_state.stage == 2:
 
     st.title("🔍 Audit Engine")
-
     st.caption(f"Profile: {st.session_state.selected_profile}")
 
     if st.button("← Back"):
@@ -156,9 +153,7 @@ elif st.session_state.stage == 2:
         st.session_state.audit_results = None
         st.rerun()
 
-
     file = st.file_uploader("Upload CSV", type=["csv"])
-
 
     # ----------------------------
     # RUN AUDIT
@@ -177,35 +172,35 @@ elif st.session_state.stage == 2:
             )
 
             st.session_state.audit_results = result
-
             status.success("Complete")
 
         except Exception as e:
             st.error(str(e))
 
 
-# ----------------------------
-# RESULTS
-# ----------------------------
-if st.session_state.audit_results:
+    # ----------------------------
+    # RESULTS (FIXED BLOCK)
+    # ----------------------------
+    if st.session_state.audit_results:
 
-    res = st.session_state.audit_results
-    m = res["metrics"]
+        res = st.session_state.audit_results
+        m = res["metrics"]
 
-    st.divider()
-    st.subheader("Metrics")
+        st.divider()
+        st.subheader("Metrics")
 
-    cols = st.columns(5)
+        cols = st.columns(5)
 
-    cols[0].metric("Input Terms", m["total_inputted"])
-    cols[1].metric("Relevant Terms", m["relevant_count"])
-    cols[2].metric("Irrelevant Terms", m["irrelevant_count"])
-    cols[3].metric("Review Queue", m["review_queue_count"])
-    cols[4].metric("Total Outputted", m["total_outputted"])
+        cols[0].metric("Input Terms", m["total_inputted"])
+        cols[1].metric("Relevant Terms", m["relevant_count"])
+        cols[2].metric("Irrelevant Terms", m["irrelevant_count"])
+        cols[3].metric("Review Queue", m["review_queue_count"])
+        cols[4].metric("Total Outputted", m["total_outputted"])
 
-    st.divider()
+        st.divider()
 
-    st.info(f"Roots Found: {m['roots_found']}")
+        st.info(f"Roots Found: {m['roots_found']}")
+
         st.divider()
         st.subheader("Negative Export")
 
@@ -230,7 +225,6 @@ elif st.session_state.stage == 3:
     if st.button("← Back"):
         st.session_state.stage = 2
         st.rerun()
-
 
     if st.session_state.audit_results:
 
