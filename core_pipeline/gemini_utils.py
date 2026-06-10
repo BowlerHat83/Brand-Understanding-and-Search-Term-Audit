@@ -4,7 +4,24 @@ import random
 from google.genai import errors
 
 
-def gemini_json(client, model, system_prompt, payload, temperature=0.1, retries=3):
+# -----------------------------
+# CORE GEMINI WRAPPER
+# -----------------------------
+def gemini_json(
+    client,
+    model,
+    system_prompt,
+    payload,
+    temperature=0.1,
+    retries=3
+):
+    """
+    Robust Gemini JSON wrapper with:
+    - exponential backoff
+    - reduced retry waste
+    - stricter failure handling
+    """
+
     for attempt in range(retries):
         try:
             response = client.models.generate_content(
@@ -16,18 +33,33 @@ def gemini_json(client, model, system_prompt, payload, temperature=0.1, retries=
                     "temperature": temperature,
                 },
             )
-            return json.loads(response.text)
+
+            text = response.text.strip()
+
+            # Fast-path: avoid unnecessary json.loads retries
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Only retry if response is clearly malformed
+                if attempt < retries - 1:
+                    time.sleep(0.5 + random.uniform(0, 0.3))
+                    continue
+                return {"term_data": []}
 
         except errors.APIError as e:
-            code = getattr(e, "code", None) or 0
+            code = getattr(e, "code", None)
 
-            if code in [429, 503] and attempt < retries - 1:
-                time.sleep(1.2 + random.uniform(0, 0.6))
+            # Rate limit / overload → exponential backoff
+            if code in (429, 503) and attempt < retries - 1:
+                sleep_time = (1.5 ** attempt) + random.uniform(0, 0.4)
+                time.sleep(sleep_time)
                 continue
 
-            raise RuntimeError(f"Gemini error ({code}): {e}")
+            raise RuntimeError(f"Gemini API error ({code}): {e}")
 
-        except json.JSONDecodeError:
-            if attempt < retries - 1:
-                continue
-            return {"term_data": []}
+        except Exception as e:
+            # Fail fast for unknown errors (don’t waste retries)
+            raise RuntimeError(f"Gemini unexpected error: {e}")
+
+    # Safe fallback (prevents pipeline breakage)
+    return {"term_data": []}
