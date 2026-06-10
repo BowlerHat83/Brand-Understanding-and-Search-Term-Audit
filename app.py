@@ -1,15 +1,10 @@
 import streamlit as st
 import pandas as pd
 
-from core_pipeline.cache_manager import (
-    get_cached_profile_names,
-    get_profile_by_name,
-    save_profile_to_cache
-)
-
-from core_pipeline.brand_engine import generate_brand_profile
-from core_pipeline.audit_engine import run_search_terms_audit
-from core_pipeline.audit_logger import generate_deep_dive_workbook
+from core.stage1_brand import generate_brand_profile
+from core.stage2_audit import run_stage2_audit
+from core.stage3_export import export_to_excel
+from core.root_negatives import extract_root_negatives  # (you will plug this in next)
 
 
 # ----------------------------
@@ -22,14 +17,14 @@ st.set_page_config(
 
 
 # ----------------------------
-# SESSION STATE INIT
+# SESSION STATE
 # ----------------------------
 def init_state():
     defaults = {
         "stage": 1,
         "blueprint": None,
         "audit_results": None,
-        "selected_profile": None
+        "root_negatives": None,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -38,189 +33,95 @@ init_state()
 
 
 # =========================================================
-# STAGE 1 — BLUEPRINT
+# STAGE 1 — BRAND BLUEPRINT
 # =========================================================
 if st.session_state.stage == 1:
 
     st.title("🛡️ Brand Blueprint")
-    st.caption("Define semantic boundaries before audit")
 
-    profiles = ["-- New Profile --"] + get_cached_profile_names()
-    selected = st.selectbox("Profile", profiles)
+    brand = st.text_input("Brand Name")
+    offering = st.text_input("Core Offering")
+    landing = st.text_input("Landing Page")
 
-    # ----------------------------
-    # LOAD EXISTING
-    # ----------------------------
-    if selected != "-- New Profile --":
-        profile = get_profile_by_name(selected)
+    if st.button("Generate Blueprint") and brand and offering and landing:
 
-        st.session_state.blueprint = profile["blueprint"]
-        st.session_state.selected_profile = selected
+        with st.spinner("Generating brand blueprint..."):
+            blueprint = generate_brand_profile(brand, offering, landing)
 
-        st.success(f"Loaded: {selected}")
+            st.session_state.blueprint = blueprint
+            st.session_state.brand = brand
+            st.session_state.offering = offering
 
-        if st.button("Proceed → Audit"):
+        st.success("Blueprint ready")
+
+    if st.session_state.blueprint:
+
+        st.json(st.session_state.blueprint)
+
+        if st.button("Continue → Audit"):
             st.session_state.stage = 2
             st.rerun()
 
-    # ----------------------------
-    # CREATE NEW
-    # ----------------------------
-    else:
-        st.subheader("Create New Profile")
-
-        col1, col2, col3 = st.columns(3)
-        brand = col1.text_input("Brand")
-        offering = col2.text_input("Core Offering")
-        landing = col3.text_input("Landing Page")
-
-        if st.button("Generate Blueprint") and brand and offering and landing:
-
-            with st.spinner("Generating..."):
-                try:
-                    st.session_state.blueprint = generate_brand_profile(
-                        brand, offering, landing
-                    )
-                    st.session_state.temp_brand = brand
-                    st.session_state.temp_offering = offering
-
-                except Exception as e:
-                    st.error(str(e))
-
-        # ----------------------------
-        # EDIT BLUEPRINT
-        # ----------------------------
-        if st.session_state.blueprint:
-
-            bp = st.session_state.blueprint
-
-            st.divider()
-            st.subheader("Edit Blueprint")
-
-            variants = st.text_input(
-                "Brand Variants",
-                ", ".join(bp.get("brand_variants", []))
-            )
-
-            negatives = st.text_area(
-                "Negative Triggers",
-                ", ".join(bp.get("explicit_negative_triggers", []))
-            )
-
-            competitors = st.text_area(
-                "Competitors",
-                ", ".join(bp.get("predicted_competitors", []))
-            )
-
-            rule = st.text_input(
-                "Golden Rule",
-                bp.get("strict_relevance_rule", "")
-            )
-
-            if st.button("Save & Continue"):
-
-                final = {
-                    "brand_variants": [x.strip() for x in variants.split(",") if x.strip()],
-                    "explicit_negative_triggers": [x.strip() for x in negatives.split(",") if x.strip()],
-                    "predicted_competitors": [x.strip() for x in competitors.split(",") if x.strip()],
-                    "strict_relevance_rule": rule.strip()
-                }
-
-                save_profile_to_cache(
-                    st.session_state.temp_brand,
-                    st.session_state.temp_offering,
-                    final
-                )
-
-                st.session_state.selected_profile = (
-                    f"{st.session_state.temp_brand} | {st.session_state.temp_offering}"
-                )
-
-                st.session_state.stage = 2
-                st.rerun()
-
 
 # =========================================================
-# STAGE 2 — AUDIT
+# STAGE 2 — AUDIT ENGINE
 # =========================================================
 elif st.session_state.stage == 2:
 
     st.title("🔍 Audit Engine")
-    st.caption(f"Profile: {st.session_state.selected_profile}")
 
     if st.button("← Back"):
         st.session_state.stage = 1
-        st.session_state.audit_results = None
         st.rerun()
 
-    file = st.file_uploader("Upload CSV", type=["csv"])
+    file = st.file_uploader("Upload Google Ads Search Terms CSV", type=["csv"])
 
-    # ----------------------------
-    # RUN AUDIT
-    # ----------------------------
     if file and st.button("Run Audit"):
 
-        progress = st.progress(0)
-        status = st.empty()
+        df = pd.read_csv(file)
 
-        try:
-            result = run_search_terms_audit(
-                file,
-                st.session_state.selected_profile,
-                progress_bar_ui=progress,
-                status_text_ui=status
+        # assume first column contains search terms (adjust if needed)
+        search_terms = df.iloc[:, 0].dropna().astype(str).tolist()
+
+        with st.spinner("Running AI audit..."):
+
+            results = run_stage2_audit(
+                search_terms,
+                st.session_state.blueprint,
+                batch_size=30
             )
 
-            st.session_state.audit_results = result
-            status.success("Complete")
+            st.session_state.audit_results = results
 
-        except Exception as e:
-            st.error(str(e))
-
+        st.success("Audit complete")
 
     # ----------------------------
-    # RESULTS (FIXED BLOCK)
+    # RESULTS PREVIEW
     # ----------------------------
     if st.session_state.audit_results:
 
-        res = st.session_state.audit_results
-        m = res["metrics"]
+        df = pd.DataFrame(st.session_state.audit_results)
 
-        st.divider()
-        st.subheader("Metrics")
+        st.subheader("Results Preview")
 
-        cols = st.columns(5)
+        st.dataframe(df)
 
-        cols[0].metric("Input Terms", m["total_inputted"])
-        cols[1].metric("Relevant Terms", m["relevant_count"])
-        cols[2].metric("Irrelevant Terms", m["irrelevant_count"])
-        cols[3].metric("Review Queue", m["review_queue_count"])
-        cols[4].metric("Total Outputted", m["total_outputted"])
+        st.metric("Total Terms", len(df))
+        st.metric("Relevant", len(df[df["classification"] == "relevant"]))
+        st.metric("Irrelevant", len(df[df["classification"] == "irrelevant"]))
+        st.metric("Review", len(df[df["classification"] == "review"]))
 
-        st.divider()
-
-        st.info(f"Roots Found: {m['roots_found']}")
-
-        st.divider()
-        st.subheader("Negative Export")
-
-        st.text_area(
-            "Copy/Paste",
-            res["copy_paste_notation"],
-            height=250
-        )
-
-        if st.button("Generate Ledger →"):
+        if st.button("Generate Excel →"):
             st.session_state.stage = 3
             st.rerun()
 
 
 # =========================================================
-# STAGE 3 — LEDGER
+# STAGE 3 — EXPORT
 # =========================================================
 elif st.session_state.stage == 3:
 
-    st.title("🔬 Audit Ledger")
+    st.title("📊 Export Ledger")
 
     if st.button("← Back"):
         st.session_state.stage = 2
@@ -228,22 +129,25 @@ elif st.session_state.stage == 3:
 
     if st.session_state.audit_results:
 
-        st.success("Building workbook...")
+        with st.spinner("Building Excel file..."):
 
-        try:
-            buffer = generate_deep_dive_workbook(
-                st.session_state.audit_results
+            # optional root negatives (plug logic later)
+            root_negatives = []
+
+            file_path = export_to_excel(
+                st.session_state.audit_results,
+                root_negatives=root_negatives
             )
 
+        st.success("Workbook ready")
+
+        with open(file_path, "rb") as f:
             st.download_button(
                 "Download Excel",
-                buffer,
-                file_name="audit_ledger.xlsx",
+                f,
+                file_name="ppc_audit.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        except Exception as e:
-            st.error(str(e))
-
     else:
-        st.info("Run audit first")
+        st.info("Run an audit first")
