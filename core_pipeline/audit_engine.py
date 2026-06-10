@@ -150,6 +150,9 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     # -----------------------------
     raw_irrelevant = [x["Search Term"] for x in irrelevant]
 
+    def tokenize(text):
+        return set(text.lower().split())
+
     def stem(w):
         w = w.lower()
         if w.endswith("ies"):
@@ -160,30 +163,43 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
             return w[:-1]
         return w
 
+    # build word frequency from irrelevants
     words = []
     for t in raw_irrelevant:
         words.extend(t.lower().split())
 
     freq = collections.Counter(words)
-    roots = [w for w, c in freq.items() if c > 1 and len(w) > 2]
 
-    root_set = set(roots)
-
-    # -----------------------------
-    # 🚨 KEY FIX: preserve ALL irrelevants
-    # -----------------------------
-    irrelevants_raw = [
-        x for x in raw_irrelevant
-        if not any(root in x.lower() for root in root_set)
-    ]
+    # roots = repeated meaningful tokens
+    roots = {
+        w for w, c in freq.items()
+        if c > 1 and len(w) > 2
+    }
 
     # -----------------------------
-    # FINAL OUTPUT STRING (ROOTS + NON-ROOT IRRELEVANTS)
+    # COVERAGE LOGIC (KEY FIX)
     # -----------------------------
+    def is_covered(term: str) -> bool:
+        term_tokens = tokenize(term)
+        return any(root in term_tokens for root in roots)
+
+    # -----------------------------
+    # BUILD EXPORT
+    # -----------------------------
+    covered = []
+    leftover_irrelevants = []
+
+    for term in raw_irrelevant:
+        if is_covered(term):
+            covered.append(term)
+        else:
+            leftover_irrelevants.append(term)
+
+    # final negative export = roots + only uncovered terms
     negative_export = "\n".join(
-        roots + irrelevants_raw
+        sorted(roots) + leftover_irrelevants
     )
-
+    
     # -----------------------------
     # METRICS
     # -----------------------------
