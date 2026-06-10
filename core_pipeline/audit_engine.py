@@ -181,7 +181,7 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     # FINAL OUTPUT STRING (ROOTS + NON-ROOT IRRELEVANTS)
     # -----------------------------
     negative_export = "\n".join(
-        ["# ROOTS"] + roots + ["", "# RAW IRRELEVANTS"] + irrelevants_raw
+        roots + irrelevants_raw
     )
 
     # -----------------------------
