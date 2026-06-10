@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from google.genai import errors
 from google.genai.types import GenerateContentConfig
-
+from .gemini_utils import gemini_json
 from . import cache_manager as cm
 
 
