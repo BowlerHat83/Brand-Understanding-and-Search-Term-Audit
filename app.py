@@ -90,7 +90,7 @@ else:
 # =========================================================
 # STAGE 2 — AUDIT ENGINE
 # =========================================================
-elif st.session_state.stage == 2:
+    elif st.session_state.stage == 2:
 
     st.title("🔍 Audit Engine")
 
