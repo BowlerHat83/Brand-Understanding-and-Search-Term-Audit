@@ -32,7 +32,6 @@ Return JSON:
 # BATCH PROCESSOR
 # -----------------------------
 def _process_batch(client, batch, profile_key, blueprint):
-
     payload = json.dumps({
         "brand": profile_key.split("|")[0].strip(),
         "bp": blueprint,
@@ -50,7 +49,7 @@ def _process_batch(client, batch, profile_key, blueprint):
 
 
 # -----------------------------
-# MAIN PIPELINE
+# MAIN PIPELINE (FIXED)
 # -----------------------------
 def run_search_terms_audit(csv_file, selected_profile_key: str,
                            progress_bar_ui=None, status_text_ui=None) -> dict:
@@ -69,9 +68,12 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
 
     raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
 
+    total_input = len(raw_terms)
     input_set = set(raw_terms)
-    remaining = set(raw_terms)
 
+    # -----------------------------
+    # BATCHING
+    # -----------------------------
     BATCH_SIZE = 20
     batches = [raw_terms[i:i + BATCH_SIZE] for i in range(0, len(raw_terms), BATCH_SIZE)]
 
@@ -80,6 +82,9 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     results = []
     failed_batches = []
 
+    # -----------------------------
+    # PARALLEL EXECUTION
+    # -----------------------------
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {
             executor.submit(_process_batch, client, batch, selected_profile_key, blueprint): batch
@@ -91,43 +96,46 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
 
             try:
                 payload = future.result()
-
-                batch_results = payload.get("term_data", [])
-                results.extend(batch_results)
-
-                if progress_bar_ui:
-                    progress_bar_ui.progress((i + 1) / len(batches))
+                results.extend(payload.get("term_data", []))
 
             except Exception:
-                # ❗ DO NOT DROP — mark for retry
                 failed_batches.append(batch)
-                continue
 
-            # retry failed batches once
-            if failed_batches:
-                retry_results = []
+            if progress_bar_ui:
+                progress_bar_ui.progress((i + 1) / len(batches))
 
-                for batch in failed_batches:
-                    try:
-                        payload = _process_batch(client, batch, selected_profile_key, blueprint)
-                        retry_results.extend(payload.get("term_data", []))
-                    except Exception:
-                        # still failing → force fallback classification
-                        retry_results.extend([
-                            {"term": t, "cls": "REVIEW", "conf": 0, "why": "batch_failed"}
-                            for t in batch
-                        ])
-
-                results.extend(retry_results)
-              
     # -----------------------------
-    # CLASSIFICATION
+    # RETRY FAILED BATCHES (ONCE ONLY)
     # -----------------------------
+    if failed_batches:
+        retry_results = []
+
+        for batch in failed_batches:
+            try:
+                payload = _process_batch(client, batch, selected_profile_key, blueprint)
+                retry_results.extend(payload.get("term_data", []))
+
+            except Exception:
+                retry_results.extend([
+                    {"term": t, "cls": "REVIEW", "conf": 0, "why": "batch_failed"}
+                    for t in batch
+                ])
+
+        results.extend(retry_results)
+
+    # -----------------------------
+    # DETERMINISTIC CLASSIFICATION (SINGLE PASS ONLY)
+    # -----------------------------
+    seen = set()
     relevant, irrelevant, review = [], [], []
 
     for item in results:
-
         term = str(item.get("term", "")).strip()
+        if not term:
+            continue
+
+        seen.add(term)
+
         cls = item.get("cls", "REVIEW")
         conf = float(item.get("conf", 0) or 0)
 
@@ -183,6 +191,7 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
         words.extend(t.lower().split())
 
     freq = collections.Counter(words)
+
     roots = [
         w for w, c in freq.items()
         if c > 1 and len(w) > 2
@@ -191,7 +200,7 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     ]
 
     # -----------------------------
-    # FINAL OUTPUT (CONSISTENT METRICS)
+    # METRICS (STRICT + TRANSPARENT)
     # -----------------------------
     total_output = len(relevant) + len(irrelevant) + len(review)
 
