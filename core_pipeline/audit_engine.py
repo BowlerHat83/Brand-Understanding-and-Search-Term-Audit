@@ -193,7 +193,16 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     relevant, irrelevant, review = [], [], []
 
     for item in results:
-        cls = item["cls"]
+        cls_raw = str(item.get("cls", "")).strip().upper()
+
+        if "RELEVANT_BRAND" in cls_raw:
+            cls = "RELEVANT_BRAND"
+        elif "RELEVANT_GENERIC" in cls_raw:
+            cls = "RELEVANT_GENERIC"
+        elif "IRRELEVANT" in cls_raw:
+            cls = "IRRELEVANT"
+        else:
+            cls = "REVIEW"
 
         record = {
             "Search Term": item["Search Term"],
