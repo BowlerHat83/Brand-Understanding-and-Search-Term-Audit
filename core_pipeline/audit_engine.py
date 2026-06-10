@@ -52,12 +52,8 @@ def _process_batch(client, batch, profile_key, blueprint):
 # -----------------------------
 # MAIN PIPELINE
 # -----------------------------
-def run_search_terms_audit(
-    csv_file,
-    selected_profile_key: str,
-    progress_bar_ui=None,
-    status_text_ui=None
-):
+def run_search_terms_audit(csv_file, selected_profile_key: str,
+                           progress_bar_ui=None, status_text_ui=None) -> dict:
 
     cached_profile = cm.get_profile_by_name(selected_profile_key)
     if not cached_profile:
@@ -73,40 +69,57 @@ def run_search_terms_audit(
 
     raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
 
-    total_input = len(raw_terms)
+    input_set = set(raw_terms)
+    remaining = set(raw_terms)
 
-    # -----------------------------
-    # BATCHING
-    # -----------------------------
     BATCH_SIZE = 20
-    batches = [
-        raw_terms[i:i + BATCH_SIZE]
-        for i in range(0, len(raw_terms), BATCH_SIZE)
-    ]
+    batches = [raw_terms[i:i + BATCH_SIZE] for i in range(0, len(raw_terms), BATCH_SIZE)]
 
     client = genai.Client()
-    results = []
 
-    # -----------------------------
-    # PARALLEL EXECUTION
-    # -----------------------------
+    results = []
+    failed_batches = []
+
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [
-            executor.submit(_process_batch, client, batch, selected_profile_key, blueprint)
+        futures = {
+            executor.submit(_process_batch, client, batch, selected_profile_key, blueprint): batch
             for batch in batches
-        ]
+        }
 
         for i, future in enumerate(as_completed(futures)):
-
-            if progress_bar_ui:
-                progress_bar_ui.progress((i + 1) / len(batches))
+            batch = futures[future]
 
             try:
                 payload = future.result()
-                results.extend(payload.get("term_data", []))
+
+                batch_results = payload.get("term_data", [])
+                results.extend(batch_results)
+
+                if progress_bar_ui:
+                    progress_bar_ui.progress((i + 1) / len(batches))
+
             except Exception:
+                # ❗ DO NOT DROP — mark for retry
+                failed_batches.append(batch)
                 continue
 
+            # retry failed batches once
+            if failed_batches:
+                retry_results = []
+
+                for batch in failed_batches:
+                    try:
+                        payload = _process_batch(client, batch, selected_profile_key, blueprint)
+                        retry_results.extend(payload.get("term_data", []))
+                    except Exception:
+                        # still failing → force fallback classification
+                        retry_results.extend([
+                            {"term": t, "cls": "REVIEW", "conf": 0, "why": "batch_failed"}
+                            for t in batch
+                        ])
+
+                results.extend(retry_results)
+              
     # -----------------------------
     # CLASSIFICATION
     # -----------------------------
