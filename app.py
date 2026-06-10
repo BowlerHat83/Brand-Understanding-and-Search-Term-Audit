@@ -192,42 +192,28 @@ elif st.session_state.stage == 2:
             st.error(str(e))
 
 
-    # ----------------------------
-    # RESULTS
-    # ----------------------------
-    if st.session_state.audit_results:
+# ----------------------------
+# RESULTS
+# ----------------------------
+if st.session_state.audit_results:
 
-        res = st.session_state.audit_results
-        m = res["metrics"]
+    res = st.session_state.audit_results
+    m = res["metrics"]
 
-        st.divider()
-        st.subheader("Metrics")
+    st.divider()
+    st.subheader("Metrics")
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Input", m["total_inputted"])
-        c2.metric("Relevant", m["relevant_count"])
-        c3.metric("Irrelevant", m["irrelevant_count"])
-        c4.metric("Review", m["review_queue_count"])
+    cols = st.columns(5)
 
-        st.success(f"Integrity OK: {m.get('total_outputted', 0)}")
+    cols[0].metric("Input Terms", m["total_inputted"])
+    cols[1].metric("Relevant Terms", m["relevant_count"])
+    cols[2].metric("Irrelevant Terms", m["irrelevant_count"])
+    cols[3].metric("Review Queue", m["review_queue_count"])
+    cols[4].metric("Total Outputted", m["total_outputted"])
 
-        st.info(
-            f"Roots: {m.get('roots_found', 0)}"
-        )
+    st.divider()
 
-        st.divider()
-        st.subheader("Review Queue")
-
-        if m["review_queue_count"]:
-            df = pd.DataFrame(res["review_queue_data"], columns=["Search Term"])
-            st.dataframe(df, use_container_width=True)
-
-            st.download_button(
-                "Download Review CSV",
-                df.to_csv(index=False).encode(),
-                file_name="review_queue.csv"
-            )
-
+    st.info(f"Roots Found: {m['roots_found']}")
         st.divider()
         st.subheader("Negative Export")
 
