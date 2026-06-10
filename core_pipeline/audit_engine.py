@@ -1,76 +1,52 @@
-import re
 import json
-import time
-import random
 import collections
 import pandas as pd
-import os
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from google import genai
-from google.genai import errors
-from google.genai.types import GenerateContentConfig
 from .gemini_utils import gemini_json
 from . import cache_manager as cm
 
 
-BATCH_AUDIT_SYSTEM_PROMPT = (
-    "You are a conservative PPC Auditing Engine.\n\n"
-    "Classify each term independently:\n"
-    "- RELEVANT_BRAND\n"
-    "- RELEVANT_GENERIC\n"
-    "- IRRELEVANT\n"
-    "- REVIEW_QUEUE\n\n"
-    "Return strict JSON only.\n"
-)
-
-
 # -----------------------------
-# GEMINI WRAPPER (FAST + SAFE)
+# SYSTEM PROMPT (MINIMAL / FAST)
 # -----------------------------
-def _call_gemini(client, prompt, retries=3):
-    for attempt in range(retries):
-        try:
-            return client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=GenerateContentConfig(
-                    system_instruction=BATCH_AUDIT_SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
+BATCH_AUDIT_SYSTEM_PROMPT = """
+Classify each term independently.
 
-        except errors.APIError as e:
-            code = getattr(e, "code", None) or 0
-            msg = str(e)
-
-            if code in [429, 503] and attempt < retries - 1:
-                time.sleep(1.5 + random.uniform(0, 0.8))
-                continue
-
-            raise RuntimeError(f"Gemini error ({code}): {msg}")
-
-    raise RuntimeError("Gemini failed after retries")
+Return JSON:
+{
+  term_data:[
+    {
+      term:"",
+      cls:"RELEVANT_BRAND|RELEVANT_GENERIC|IRRELEVANT|REVIEW",
+      conf:0-1,
+      why:"max 5 words"
+    }
+  ]
+}
+"""
 
 
 # -----------------------------
 # BATCH PROCESSOR
 # -----------------------------
 def _process_batch(client, batch, profile_key, blueprint):
-    prompt = {
+    payload = json.dumps({
         "brand": profile_key.split("|")[0].strip(),
-        "blueprint": blueprint,
-        "search_terms": batch,
-    }
+        "bp": blueprint,
+        "terms": batch
+    })
 
-    response = _call_gemini(client, json.dumps(prompt))
-
-    try:
-        return json.loads(response.text)
-    except json.JSONDecodeError:
-        return {"term_data": []}
+    return gemini_json(
+        client=client,
+        model="gemini-2.5-flash",
+        system_prompt=BATCH_AUDIT_SYSTEM_PROMPT,
+        payload=payload,
+        temperature=0.1,
+        retries=3
+    )
 
 
 # -----------------------------
@@ -96,7 +72,7 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     total_input = len(raw_terms)
 
     # -----------------------------
-    # OPTIMIZED BATCH SIZE
+    # FASTER + SAFER BATCH SIZE
     # -----------------------------
     BATCH_SIZE = 20
 
@@ -110,13 +86,13 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     results = []
 
     # -----------------------------
-    # PARALLEL EXECUTION (KEY SPEED WIN)
+    # PARALLEL EXECUTION
     # -----------------------------
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(_process_batch, client, batch, selected_profile_key, blueprint): batch
+        futures = [
+            executor.submit(_process_batch, client, batch, selected_profile_key, blueprint)
             for batch in batches
-        }
+        ]
 
         for i, future in enumerate(as_completed(futures)):
             if progress_bar_ui:
@@ -129,22 +105,22 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
                 continue
 
     # -----------------------------
-    # CLASSIFICATION (UNCHANGED LOGIC)
+    # CLASSIFICATION (FIXED FIELD HANDLING)
     # -----------------------------
     relevant, irrelevant, review = [], [], []
 
     for item in results:
         term = str(item.get("term", "")).strip()
-        cls = item.get("classification", "REVIEW_QUEUE")
-        conf = float(item.get("confidence", 0) or 0)
+        cls = item.get("cls", "REVIEW")
+        conf = float(item.get("conf", 0) or 0)
 
         record = {
             "Search Term": term,
-            "Reasoning": item.get("reasoning", ""),
+            "Reasoning": item.get("why", ""),
             "Confidence Score": conf,
         }
 
-        if conf < 0.7:
+        if conf < 0.7 or cls == "REVIEW":
             review.append(record)
         elif cls in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
             relevant.append(record)
@@ -154,7 +130,7 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
             review.append(record)
 
     # -----------------------------
-    # ROOT LOGIC (UNCHANGED)
+    # ROOT EXTRACTION (UNCHANGED LOGIC, CLEANED)
     # -----------------------------
     raw_irrelevant = [x["Search Term"] for x in irrelevant]
     safe_terms = set(x["Search Term"].lower().strip() for x in (relevant + review))
@@ -169,25 +145,27 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
             return w[:-1]
         return w
 
-    protected = set(re.findall(r"\b\w+\b", selected_profile_key.lower()))
+    protected = set(selected_profile_key.lower().split())
     protected_stems = {stem(x) for x in protected}
 
-    safe_stems = {stem(w) for t in safe_terms for w in re.findall(r"\b\w+\b", t)}
+    safe_stems = {
+        stem(w)
+        for t in safe_terms
+        for w in t.split()
+    }
 
     words = []
     for t in raw_irrelevant:
-        words.extend(re.findall(r"\b\w+\b", t.lower()))
+        words.extend(t.lower().split())
 
     freq = collections.Counter(words)
     candidates = [w for w, c in freq.items() if c > 1 and len(w) > 2]
 
-    roots = []
-
-    for r in candidates:
-        rs = stem(r)
-        if rs in protected_stems or rs in safe_stems:
-            continue
-        roots.append(r)
+    roots = [
+        r for r in candidates
+        if stem(r) not in protected_stems
+        and stem(r) not in safe_stems
+    ]
 
     # -----------------------------
     # OUTPUT
