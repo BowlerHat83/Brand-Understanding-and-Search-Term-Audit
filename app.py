@@ -36,14 +36,6 @@ def init_state():
 
 init_state()
 
-
-# ----------------------------
-# SIDEBAR STATUS
-# ----------------------------
-st.sidebar.title("Status")
-st.sidebar.write(f"Stage: {st.session_state.stage}")
-
-
 # =========================================================
 # STAGE 1 — BLUEPRINT
 # =========================================================
