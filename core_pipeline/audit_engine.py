@@ -49,7 +49,7 @@ def _process_batch(client, batch, profile_key, blueprint):
 
 
 # -----------------------------
-# MAIN PIPELINE (FIXED)
+# MAIN PIPELINE
 # -----------------------------
 def run_search_terms_audit(csv_file, selected_profile_key: str,
                            progress_bar_ui=None, status_text_ui=None) -> dict:
@@ -69,7 +69,6 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     raw_terms = df["search term"].dropna().astype(str).str.strip().unique().tolist()
 
     total_input = len(raw_terms)
-    input_set = set(raw_terms)
 
     # -----------------------------
     # BATCHING
@@ -105,36 +104,28 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
                 progress_bar_ui.progress((i + 1) / len(batches))
 
     # -----------------------------
-    # RETRY FAILED BATCHES (ONCE ONLY)
+    # RETRY FAILED BATCHES
     # -----------------------------
     if failed_batches:
-        retry_results = []
-
         for batch in failed_batches:
             try:
                 payload = _process_batch(client, batch, selected_profile_key, blueprint)
-                retry_results.extend(payload.get("term_data", []))
-
+                results.extend(payload.get("term_data", []))
             except Exception:
-                retry_results.extend([
+                results.extend([
                     {"term": t, "cls": "REVIEW", "conf": 0, "why": "batch_failed"}
                     for t in batch
                 ])
 
-        results.extend(retry_results)
-
     # -----------------------------
-    # DETERMINISTIC CLASSIFICATION (SINGLE PASS ONLY)
+    # CLASSIFICATION
     # -----------------------------
-    seen = set()
     relevant, irrelevant, review = [], [], []
 
     for item in results:
         term = str(item.get("term", "")).strip()
         if not term:
             continue
-
-        seen.add(term)
 
         cls = item.get("cls", "REVIEW")
         conf = float(item.get("conf", 0) or 0)
@@ -147,13 +138,10 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
 
         if conf < 0.7 or cls == "REVIEW":
             review.append(record)
-
         elif cls in ["RELEVANT_BRAND", "RELEVANT_GENERIC"]:
             relevant.append(record)
-
         elif cls == "IRRELEVANT":
             irrelevant.append(record)
-
         else:
             review.append(record)
 
@@ -161,11 +149,6 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
     # ROOT EXTRACTION
     # -----------------------------
     raw_irrelevant = [x["Search Term"] for x in irrelevant]
-
-    safe_terms = set(
-        x["Search Term"].lower().strip()
-        for x in (relevant + review)
-    )
 
     def stem(w):
         w = w.lower()
@@ -177,30 +160,32 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
             return w[:-1]
         return w
 
-    protected = set(selected_profile_key.lower().split())
-    protected_stems = {stem(x) for x in protected}
-
-    safe_stems = {
-        stem(w)
-        for t in safe_terms
-        for w in t.split()
-    }
-
     words = []
     for t in raw_irrelevant:
         words.extend(t.lower().split())
 
     freq = collections.Counter(words)
+    roots = [w for w, c in freq.items() if c > 1 and len(w) > 2]
 
-    roots = [
-        w for w, c in freq.items()
-        if c > 1 and len(w) > 2
-        and stem(w) not in protected_stems
-        and stem(w) not in safe_stems
+    root_set = set(roots)
+
+    # -----------------------------
+    # 🚨 KEY FIX: preserve ALL irrelevants
+    # -----------------------------
+    irrelevants_raw = [
+        x for x in raw_irrelevant
+        if not any(root in x.lower() for root in root_set)
     ]
 
     # -----------------------------
-    # METRICS (STRICT + TRANSPARENT)
+    # FINAL OUTPUT STRING (ROOTS + NON-ROOT IRRELEVANTS)
+    # -----------------------------
+    negative_export = "\n".join(
+        ["# ROOTS"] + roots + ["", "# RAW IRRELEVANTS"] + irrelevants_raw
+    )
+
+    # -----------------------------
+    # METRICS
     # -----------------------------
     total_output = len(relevant) + len(irrelevant) + len(review)
 
@@ -208,17 +193,16 @@ def run_search_terms_audit(csv_file, selected_profile_key: str,
         "metrics": {
             "total_inputted": total_input,
             "total_outputted": total_output,
-
             "relevant_count": len(relevant),
             "irrelevant_count": len(irrelevant),
             "review_queue_count": len(review),
-
             "roots_found": len(roots),
         },
 
         "review_queue_data": [x["Search Term"] for x in review],
 
-        "copy_paste_notation": "\n".join(roots),
+        # ✅ FIXED: now includes BOTH roots + leftover irrelevants
+        "copy_paste_notation": negative_export,
 
         "raw_classified_records": {
             "relevant": relevant,
