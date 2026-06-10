@@ -1,98 +1,51 @@
-import json
-import time
-import random
-from google import genai
-from google.genai import errors
+from collections import Counter
+import re
 
 
 # -----------------------------
-# SYSTEM PROMPT
+# BASIC STOPWORDS (lightweight, PPC-focused)
 # -----------------------------
-BRAND_BLUEPRINT_SYSTEM_PROMPT = """
-You are an expert PPC Core Strategist.
-
-Your task is to create a strict semantic blueprint for search term filtering.
-
-Return ONLY valid JSON with exactly these keys:
-
-{
-  "brand_variants": [],
-  "explicit_negative_triggers": [],
-  "predicted_competitors": [],
-  "strict_relevance_rule": ""
+STOPWORDS = {
+    "the", "and", "or", "for", "with", "a", "an", "to", "in", "of",
+    "is", "on", "by", "this", "that", "it", "as", "at", "from"
 }
 
-Rules:
-- No markdown
-- No explanation
-- No extra keys
-- Keep outputs concise and realistic
-"""
+
+# -----------------------------
+# TOKEN CLEANING
+# -----------------------------
+def _tokenize(text: str):
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    tokens = text.split()
+    return [t for t in tokens if t not in STOPWORDS and len(t) > 1]
 
 
 # -----------------------------
-# MAIN GENERATOR
+# MAIN FUNCTION
 # -----------------------------
-def generate_brand_profile(brand_name: str, core_offering: str, landing_page: str) -> dict:
+def extract_root_negatives(stage2_results: list, top_k: int = 50) -> list:
     """
-    Generates a PPC semantic blueprint using Gemini with safe retry logic.
+    Extracts high-frequency root negative terms from Stage 2 output.
     """
 
-    client = genai.Client()
+    all_terms = []
 
-    user_prompt = f"""
-Brand: {brand_name}
-Core Offering: {core_offering}
-Landing Page: {landing_page}
+    for item in stage2_results:
+        # focus only on irrelevant + low-confidence noise
+        if (
+            item.get("classification") == "irrelevant"
+            or item.get("confidence", 1.0) < 0.5
+        ):
+            term = item.get("term", "")
+            all_terms.extend(_tokenize(term))
 
-Return strict JSON blueprint.
-"""
+    if not all_terms:
+        return []
 
-    max_retries = 5
+    counts = Counter(all_terms)
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=user_prompt,
-                config={
-                    "system_instruction": BRAND_BLUEPRINT_SYSTEM_PROMPT,
-                    "response_mime_type": "application/json",
-                    "temperature": 0.2,
-                },
-            )
+    # return most common roots
+    most_common = counts.most_common(top_k)
 
-            return json.loads(response.text)
-
-        except errors.APIError as e:
-            code = getattr(e, "code", None)
-
-            if code in [429, 503] and attempt < max_retries - 1:
-                time.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                continue
-
-            raise RuntimeError(f"Gemini API error ({code}): {e}")
-
-        except json.JSONDecodeError:
-            # retry once before fallback
-            if attempt < max_retries - 1:
-                continue
-
-            break
-
-        except Exception as e:
-            raise RuntimeError(f"Unexpected error: {e}")
-
-    # -----------------------------
-    # SAFE FALLBACK (prevents pipeline break)
-    # -----------------------------
-    return {
-        "brand_variants": [brand_name.strip()],
-        "explicit_negative_triggers": [
-            "jobs", "salary", "free", "diy", "download", "cheap"
-        ],
-        "predicted_competitors": [],
-        "strict_relevance_rule": (
-            f"Must show clear intent related to {core_offering}"
-        )
-    }
+    return [word for word, _ in most_common]
