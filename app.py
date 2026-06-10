@@ -35,28 +35,52 @@ init_state()
 # =========================================================
 # STAGE 1 — BRAND BLUEPRINT
 # =========================================================
-if st.session_state.stage == 1:
+from core.stage1_brand import (
+    generate_brand_profile,
+    list_cached_blueprints,
+    load_cached_blueprint
+)
 
-    st.title("🛡️ Brand Blueprint")
+cached = list_cached_blueprints()
+
+st.title("🛡️ Brand Blueprint")
+
+selection = st.selectbox(
+    "Select Existing Blueprint",
+    ["-- Create New --"] + cached
+)
+
+# ----------------------------
+# LOAD EXISTING BLUEPRINT
+# ----------------------------
+if selection != "-- Create New --":
+
+    blueprint = load_cached_blueprint(selection)
+
+    st.session_state.blueprint = blueprint
+
+    st.success(f"Loaded cached blueprint: {selection}")
+
+    if st.button("Continue → Audit"):
+        st.session_state.stage = 2
+        st.rerun()
+
+# ----------------------------
+# CREATE NEW BLUEPRINT
+# ----------------------------
+else:
 
     brand = st.text_input("Brand Name")
     offering = st.text_input("Core Offering")
     landing = st.text_input("Landing Page")
 
-    if st.button("Generate Blueprint") and brand and offering and landing:
+    if st.button("Generate Blueprint"):
 
-        with st.spinner("Generating brand blueprint..."):
-            blueprint = generate_brand_profile(brand, offering, landing)
+        blueprint = generate_brand_profile(brand, offering, landing)
 
-            st.session_state.blueprint = blueprint
-            st.session_state.brand = brand
-            st.session_state.offering = offering
+        st.session_state.blueprint = blueprint
 
-        st.success("Blueprint ready")
-
-    if st.session_state.blueprint:
-
-        st.json(st.session_state.blueprint)
+        st.success("Blueprint generated")
 
         if st.button("Continue → Audit"):
             st.session_state.stage = 2
