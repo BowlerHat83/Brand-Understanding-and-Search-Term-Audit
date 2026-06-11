@@ -1,76 +1,92 @@
 import streamlit as st
-import pandas as pd
 
-from core.stage1_brand import (
-    generate_brand_profile,
-    list_cached_blueprints,
-    load_cached_blueprint
-)
-
-from core.stage2_audit import run_stage2_audit
-from core.stage3_export import export_to_excel
-from core.root_negatives import extract_root_negatives
-
-
-# ----------------------------
-# PAGE CONFIG
-# ----------------------------
 st.set_page_config(
     layout="wide",
     page_title="AI PPC Search Terms Auditor"
 )
 
-
-# ----------------------------
-# SESSION STATE
-# ----------------------------
+# -----------------------------
+# SAFE SESSION STATE INIT
+# -----------------------------
 def init_state():
     defaults = {
         "stage": 1,
         "blueprint": None,
         "audit_results": None,
         "root_negatives": None,
+        "brand": None
     }
     for k, v in defaults.items():
-        st.session_state.setdefault(k, v)
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 init_state()
 
+st.title("🛡️ AI PPC Search Terms Auditor")
+
+
+# -----------------------------
+# LAZY IMPORTS (CRITICAL FIX)
+# -----------------------------
+@st.cache_resource
+def load_stage1():
+    from core.stage1_brand import (
+        generate_brand_profile,
+        list_cached_blueprints,
+        load_cached_blueprint
+    )
+    return generate_brand_profile, list_cached_blueprints, load_cached_blueprint
+
+
+@st.cache_resource
+def load_stage2():
+    from core.stage2_audit import run_stage2_audit
+    return run_stage2_audit
+
+
+@st.cache_resource
+def load_stage3():
+    from core.stage3_export import export_to_excel
+    return export_to_excel
+
 
 # =========================================================
-# STAGE 1 — BRAND BLUEPRINT
+# STAGE 1 — BLUEPRINT
 # =========================================================
-cached = list_cached_blueprints()
+def stage1():
+    generate_brand_profile, list_cached_blueprints, load_cached_blueprint = load_stage1()
 
-st.title("🛡️ Brand Blueprint")
+    st.header("🧠 Stage 1 — Brand Blueprint")
 
-if st.session_state.stage == 1:
+    cached = []
+    try:
+        cached = list_cached_blueprints()
+    except Exception:
+        cached = []
 
     selection = st.selectbox(
         "Select Existing Blueprint",
         ["-- Create New --"] + cached
     )
 
-    # ----------------------------
-    # LOAD EXISTING BLUEPRINT
-    # ----------------------------
+    # -----------------------------
+    # LOAD EXISTING
+    # -----------------------------
     if selection != "-- Create New --":
-
         blueprint = load_cached_blueprint(selection)
 
         if blueprint:
             st.session_state.blueprint = blueprint
-            st.success(f"Loaded cached blueprint: {selection}")
+            st.success("Blueprint loaded")
 
-            if st.button("Continue → Audit"):
+            if st.button("Continue → Stage 2"):
                 st.session_state.stage = 2
                 st.rerun()
 
-    # ----------------------------
-    # CREATE NEW BLUEPRINT
-    # ----------------------------
+    # -----------------------------
+    # CREATE NEW
+    # -----------------------------
     else:
-
         brand = st.text_input("Brand Name")
         offering = st.text_input("Core Offering")
         landing = st.text_input("Landing Page")
@@ -79,82 +95,86 @@ if st.session_state.stage == 1:
 
             if not brand or not offering or not landing:
                 st.error("Please fill all fields")
-            else:
-                blueprint = generate_brand_profile(brand, offering, landing)
+                return
 
-                st.session_state.blueprint = blueprint
-                st.session_state.brand = brand
+            with st.spinner("Generating blueprint..."):
+                blueprint = generate_brand_profile(
+                    brand,
+                    offering,
+                    landing
+                )
 
-                st.success("Blueprint generated")
+            st.session_state.blueprint = blueprint
+            st.session_state.brand = brand
 
-                if st.button("Continue → Audit"):
-                    st.session_state.stage = 2
-                    st.rerun()
+            st.success("Blueprint created")
+
+            st.session_state.stage = 2
+            st.rerun()
 
 
 # =========================================================
-# STAGE 2 — AUDIT ENGINE
+# STAGE 2 — AUDIT
 # =========================================================
-elif st.session_state.stage == 2:
+def stage2():
+    run_stage2_audit = load_stage2()
 
-    st.title("🔍 Audit Engine")
+    st.header("🔍 Stage 2 — Audit Engine")
 
     if st.button("← Back"):
         st.session_state.stage = 1
         st.rerun()
 
-    file = st.file_uploader("Upload Google Ads Search Terms CSV", type=["csv"])
+    file = st.file_uploader("Upload Google Ads CSV", type=["csv"])
 
-    # ----------------------------
-    # RUN AUDIT
-    # ----------------------------
-    if file and st.button("Run Audit"):
+    if file:
+        import pandas as pd
 
-        df = pd.read_csv(file)
+        df = pd.read_csv(file, encoding="utf-8", on_bad_lines="skip")
+        terms = df.iloc[:, 0].dropna().astype(str).tolist()
 
-        # assume first column contains search terms
-        search_terms = df.iloc[:, 0].dropna().astype(str).tolist()
+        st.write(f"Loaded {len(terms)} search terms")
 
-        with st.spinner("Running AI audit..."):
+        if st.button("Run Audit"):
 
-            results = run_stage2_audit(
-                search_terms,
-                st.session_state.blueprint,
-                batch_size=30
-            )
+            if not st.session_state.blueprint:
+                st.error("No blueprint found. Go back to Stage 1.")
+                return
+
+            progress = st.progress(0)
+            status = st.empty()
+
+            def progress_hook(i, total):
+                progress.progress(i / total)
+                status.write(f"Processing batch {i}/{total}")
+
+            with st.spinner("Running classification..."):
+                results = run_stage2_audit(
+                    terms,
+                    st.session_state.blueprint,
+                    batch_size=30,
+                    progress_hook=progress_hook
+                )
 
             st.session_state.audit_results = results
 
-        st.success("Audit complete")
+            st.success("Audit complete")
 
-    # ----------------------------
-    # RESULTS PREVIEW
-    # ----------------------------
+    # -----------------------------
+    # RESULTS
+    # -----------------------------
     if st.session_state.audit_results:
+        import pandas as pd
 
         df = pd.DataFrame(st.session_state.audit_results)
-
-        st.subheader("Results Preview")
         st.dataframe(df)
 
-        st.metric("Total Terms", len(df))
+        st.metric("Total", len(df))
         st.metric("Relevant", len(df[df["classification"] == "relevant"]))
         st.metric("Irrelevant", len(df[df["classification"] == "irrelevant"]))
         st.metric("Review", len(df[df["classification"] == "review"]))
 
-        # ----------------------------
-        # ROOT NEGATIVES (preview)
-        # ----------------------------
-        st.subheader("Root Negatives Preview")
-
-        try:
-            roots = extract_root_negatives(st.session_state.audit_results)
-            st.session_state.root_negatives = roots
-            st.write(roots)
-        except Exception as e:
-            st.warning(f"Root negatives failed: {e}")
-
-        if st.button("Generate Excel →"):
+        if st.button("Continue → Export"):
             st.session_state.stage = 3
             st.rerun()
 
@@ -162,24 +182,28 @@ elif st.session_state.stage == 2:
 # =========================================================
 # STAGE 3 — EXPORT
 # =========================================================
-elif st.session_state.stage == 3:
+def stage3():
+    export_to_excel = load_stage3()
 
-    st.title("📊 Export Ledger")
+    st.header("📊 Export Results")
 
     if st.button("← Back"):
         st.session_state.stage = 2
         st.rerun()
 
-    if st.session_state.audit_results:
+    if not st.session_state.audit_results:
+        st.info("Run audit first")
+        return
 
-        with st.spinner("Building Excel file..."):
+    if st.button("Generate Excel"):
 
+        with st.spinner("Building workbook..."):
             file_path = export_to_excel(
                 st.session_state.audit_results,
-                root_negatives=st.session_state.root_negatives or []
+                st.session_state.root_negatives or []
             )
 
-        st.success("Workbook ready")
+        st.success("Ready")
 
         with open(file_path, "rb") as f:
             st.download_button(
@@ -189,5 +213,13 @@ elif st.session_state.stage == 3:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-    else:
-        st.info("Run an audit first")
+
+# =========================================================
+# ROUTER
+# =========================================================
+if st.session_state.stage == 1:
+    stage1()
+elif st.session_state.stage == 2:
+    stage2()
+elif st.session_state.stage == 3:
+    stage3()
