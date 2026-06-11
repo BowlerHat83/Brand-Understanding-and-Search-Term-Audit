@@ -1,0 +1,80 @@
+def stage1():
+    from core.stage1_brand import generate_brand_draft, save_brand_truth
+
+    st.header("🧠 Stage 1 — Brand Setup")
+
+    st.subheader("Step 1: Enter Your Brand")
+
+    company = st.text_input("Company Name")
+    offering = st.text_input("Core Offering")
+    landing = st.text_input("Landing Page")
+
+    if "brand_draft" not in st.session_state:
+        st.session_state.brand_draft = None
+
+    # -----------------------------
+    # GENERATE DRAFT
+    # -----------------------------
+    if st.button("Generate Brand Profile"):
+
+        if not company or not offering:
+            st.error("Please fill in Company Name and Core Offering")
+            return
+
+        with st.spinner("Building brand profile..."):
+            draft = generate_brand_draft(company, offering, landing)
+
+        st.session_state.brand_draft = draft
+
+    draft = st.session_state.brand_draft
+
+    # -----------------------------
+    # EDITABLE REVIEW UI
+    # -----------------------------
+    if draft:
+
+        st.subheader("Step 2: Review & Edit")
+
+        st.caption("You can edit everything below before confirming.")
+
+        brand_variants = st.text_area(
+            "Brand Variations (one per line)",
+            value="\n".join(draft.get("brand_variants", [])),
+            height=150
+        )
+
+        junk_triggers = st.text_area(
+            "Junk / Irrelevant Search Triggers (one per line)",
+            value="\n".join(draft.get("explicit_junk_triggers", [])),
+            height=150
+        )
+
+        competitors = st.text_area(
+            "Direct Competitors (one per line)",
+            value="\n".join(draft.get("direct_competitors", [])),
+            height=150
+        )
+
+        # -----------------------------
+        # CONFIRMATION
+        # -----------------------------
+        if st.button("Confirm Brand Setup → Lock Stage 1"):
+
+            final_data = {
+                "company_name": company,
+                "core_offering": offering,
+                "brand_variants": [x.strip() for x in brand_variants.split("\n") if x.strip()],
+                "explicit_junk_triggers": [x.strip() for x in junk_triggers.split("\n") if x.strip()],
+                "direct_competitors": [x.strip() for x in competitors.split("\n") if x.strip()],
+            }
+
+            # cache key format: Company | Core Offering
+            key_name = f"{company} | {offering}"
+
+            save_brand_truth(company, offering, final_data)
+
+            st.session_state.blueprint = final_data
+            st.session_state.stage = 2
+
+            st.success("Brand setup locked in")
+            st.rerun()
