@@ -1,28 +1,42 @@
 import json
-import time
-import random
-from typing import List
+import re
+from collections import Counter
+from typing import List, Dict
 
 import streamlit as st
 from google import genai
-from google.genai import errors
 
 
 # =========================================================
-# BATCHING
+# CLIENT
 # =========================================================
-def chunk_list(items: List[str], size: int = 30):
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
+def _client():
+    key = st.secrets.get("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("Missing GEMINI_API_KEY")
+    return genai.Client(api_key=key)
 
 
 # =========================================================
-# SYSTEM PROMPT
+# SYSTEM PROMPT (DECISION-FIRST MODEL)
 # =========================================================
 SYSTEM_PROMPT = """
-You are a PPC search term classifier.
+You are a PPC decision engine.
 
-Return ONLY JSON:
+You must classify every search term using the brand context.
+
+Allowed classifications:
+- relevant
+- irrelevant
+- review (ONLY if truly ambiguous AND confidence < 0.6)
+
+Rules:
+- NEVER default to review
+- Prefer relevant or irrelevant whenever possible
+- Review is a last resort (<5% of cases)
+- Be strict and consistent
+
+Return ONLY valid JSON:
 
 {
   "results": [
@@ -30,139 +44,130 @@ Return ONLY JSON:
       "term": "",
       "classification": "relevant | irrelevant | review",
       "confidence": 0.0,
-      "reason": ""
+      "reason": "max 10 words"
     }
   ]
 }
-
-Rules:
-- One result per input term
-- Preserve order exactly
-- confidence 0–1
-- no extra keys
 """
 
 
 # =========================================================
-# CLIENT
+# ROOT NEGATIVE EXTRACTION (DERIVED ONLY)
 # =========================================================
-def _get_client():
-    api_key = st.secrets.get("GEMINI_API_KEY")
+def extract_root_negatives(irrelevant_terms: List[str], stage1: dict) -> List[str]:
 
-    if not api_key:
-        raise RuntimeError("Missing GEMINI_API_KEY in secrets")
+    text = " ".join(irrelevant_terms).lower()
+    tokens = re.findall(r"[a-z0-9]+", text)
 
-    return genai.Client(api_key=api_key)
+    stopwords = {
+        "the", "and", "for", "with", "this", "that", "from",
+        "jobs", "free", "cheap", "download", "best"
+    }
+
+    tokens = [t for t in tokens if t not in stopwords and len(t) > 2]
+
+    counts = Counter(tokens)
+
+    # protect brand meaning (never block these)
+    protected = set()
+
+    protected.update(stage1.get("brand_variants", []))
+    protected.update(stage1.get("direct_competitors", []))
+
+    core = stage1.get("core_offering", "")
+    if isinstance(core, str):
+        protected.update(core.lower().split())
+
+    roots = [
+        word for word, _ in counts.most_common(50)
+        if word not in protected
+    ]
+
+    return roots
 
 
 # =========================================================
-# SINGLE BATCH (HARDENED)
+# BATCH CLASSIFICATION
 # =========================================================
-def _classify_batch(client, batch, blueprint):
+def _classify_batch(client, batch: List[str], stage1: dict):
+
     payload = {
-        "blueprint": blueprint,
+        "brand_context": stage1,
         "search_terms": batch
     }
 
-    max_retries = 2  # small + fast fail
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=json.dumps(payload),
+        config={
+            "system_instruction": SYSTEM_PROMPT,
+            "response_mime_type": "application/json",
+            "temperature": 0.2,
+        },
+    )
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=json.dumps(payload),
-                config={
-                    "system_instruction": SYSTEM_PROMPT,
-                    "response_mime_type": "application/json",
-                    "temperature": 0.2,
-                },
-            )
+    data = json.loads(response.text)
+    results = data.get("results", [])
 
-            data = json.loads(response.text)
-            results = data.get("results", [])
+    cleaned = []
 
-            # -----------------------------
-            # SAFE LENGTH HANDLING (NO CRASH)
-            # -----------------------------
-            if not isinstance(results, list):
-                raise ValueError("Invalid results format")
+    for i, term in enumerate(batch):
+        item = results[i] if i < len(results) else {}
 
-            cleaned = []
+        cleaned.append({
+            "term": term,
+            "classification": item.get("classification", "review"),
+            "confidence": float(item.get("confidence", 0.0) or 0.0),
+            "reason": item.get("reason", "")
+        })
 
-            for i, term in enumerate(batch):
-                item = results[i] if i < len(results) else {}
-
-                cleaned.append({
-                    "term": term,
-                    "classification": item.get("classification", "review"),
-                    "confidence": float(item.get("confidence", 0.0) or 0.0),
-                    "reason": (item.get("reason", "") or "")[:120]
-                })
-
-            return cleaned
-
-        except (json.JSONDecodeError, ValueError):
-            # bad output → retry once quickly
-            continue
-
-        except errors.APIError as e:
-            code = getattr(e, "code", None)
-
-            # NO LONG BACKOFF (prevents multi-minute stalls)
-            if code in [429, 503]:
-                time.sleep(1.0)
-                continue
-
-            return _fallback_batch(batch)
-
-        except Exception:
-            return _fallback_batch(batch)
-
-    return _fallback_batch(batch)
-
-
-# =========================================================
-# FALLBACK (NEVER FAIL PIPELINE)
-# =========================================================
-def _fallback_batch(batch):
-    return [
-        {
-            "term": t,
-            "classification": "review",
-            "confidence": 0.5,
-            "reason": "fallback"
-        }
-        for t in batch
-    ]
+    return cleaned
 
 
 # =========================================================
 # MAIN PIPELINE
 # =========================================================
-def run_stage2_audit(search_terms, blueprint, batch_size=30, progress_hook=None):
+def run_stage2_audit(search_terms: List[str], stage1: dict, batch_size: int = 30):
 
-    client = _get_client()
+    client = _client()
 
     results = []
-    batches = list(chunk_list(search_terms, batch_size))
 
-    total = len(batches)
+    # -----------------------------
+    # BATCH PROCESSING
+    # -----------------------------
+    for i in range(0, len(search_terms), batch_size):
+        batch = search_terms[i:i + batch_size]
+        results.extend(_classify_batch(client, batch, stage1))
 
-    for i, batch in enumerate(batches, start=1):
+    # -----------------------------
+    # ERROR 001: INTEGRITY CHECK
+    # -----------------------------
+    if len(results) != len(search_terms):
+        raise RuntimeError("ERROR 001 — Term count mismatch")
 
-        batch_results = _classify_batch(client, batch, blueprint)
-        results.extend(batch_results)
+    # -----------------------------
+    # SPLIT OUTPUTS
+    # -----------------------------
+    relevant = [r for r in results if r["classification"] == "relevant"]
+    irrelevant = [r for r in results if r["classification"] == "irrelevant"]
+    review = [r for r in results if r["classification"] == "review"]
 
-        # -----------------------------
-        # UI PROGRESS SAFE UPDATE
-        # -----------------------------
-        if progress_hook:
-            try:
-                progress_hook(i, total)
-            except Exception:
-                pass
+    # -----------------------------
+    # ROOT NEGATIVES (DERIVED ONLY)
+    # -----------------------------
+    root_negatives = extract_root_negatives(
+        [r["term"] for r in irrelevant],
+        stage1
+    )
 
-        # small throttle (prevents API spikes, not stalls)
-        time.sleep(0.1)
-
-    return results
+    # -----------------------------
+    # FINAL OUTPUT STRUCTURE
+    # -----------------------------
+    return {
+        "results": results,
+        "relevant": relevant,
+        "irrelevant": irrelevant,
+        "review": review,
+        "root_negatives": root_negatives
+    }
