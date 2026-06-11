@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 # =========================================================
-# OUTPUT DIR (SAFE FOR CLOUD + LOCAL)
+# OUTPUT DIRECTORY
 # =========================================================
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -13,84 +13,82 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # =========================================================
 # MAIN EXPORT FUNCTION
 # =========================================================
-def export_to_excel(stage2_results: list, root_negatives: list = None) -> str:
-    """
-    Converts Stage 2 output into structured Excel workbook.
-    Never crashes Streamlit app — always returns file path or fallback.
-    """
+def export_to_excel(stage2_output: dict) -> str:
 
-    if root_negatives is None:
-        root_negatives = []
+    results = stage2_output["results"]
+    relevant = stage2_output["relevant"]
+    irrelevant = stage2_output["irrelevant"]
+    review = stage2_output["review"]
+    root_negatives = stage2_output["root_negatives"]
 
-    # -----------------------------
-    # SAFETY CHECK
-    # -----------------------------
-    if not stage2_results or not isinstance(stage2_results, list):
-        raise ValueError("No valid results to export")
+    total_input = len(results)
 
-    df = pd.DataFrame(stage2_results)
+    # =====================================================
+    # DATAFRAME BUILD (NORMALISED)
+    # =====================================================
+    df_relevant = pd.DataFrame([
+        {
+            "term": r["term"],
+            "confidence": r.get("confidence", 0.0)
+        }
+        for r in relevant
+    ])
 
-    if df.empty:
-        raise ValueError("Empty dataframe — nothing to export")
+    df_review = pd.DataFrame([
+        {
+            "term": r["term"],
+            "confidence": r.get("confidence", 0.0)
+        }
+        for r in review
+    ])
 
-    # -----------------------------
-    # COLUMN SAFETY
-    # -----------------------------
-    required_cols = ["term", "classification", "confidence"]
+    df_irrelevant = pd.DataFrame([
+        {
+            "term": r["term"],
+            "confidence": r.get("confidence", 0.0),
+            "reason": (r.get("reason", "")[:5] if r.get("reason") else "")
+        }
+        for r in irrelevant
+    ])
 
-    for col in required_cols:
-        if col not in df.columns:
-            df[col] = None
+    df_roots = pd.DataFrame({
+        "root_negative_terms": root_negatives
+    })
 
-    # Ensure safe defaults
-    df["confidence"] = pd.to_numeric(df["confidence"], errors="coerce").fillna(0.0)
-    df["classification"] = df["classification"].fillna("review")
-    df["term"] = df["term"].fillna("unknown")
+    # =====================================================
+    # ERROR 001 CHECK
+    # =====================================================
+    integrity_ok = (
+        len(df_relevant) + len(df_irrelevant) + len(df_review)
+    ) == total_input
 
-    # -----------------------------
-    # SPLITS
-    # -----------------------------
-    relevant_df = df[df["classification"] == "relevant"]
-    irrelevant_df = df[df["classification"] == "irrelevant"]
-    review_df = df[df["classification"] == "review"]
-    low_conf_df = df[df["confidence"] < 0.7]
+    # =====================================================
+    # SUMMARY SHEET
+    # =====================================================
+    summary = pd.DataFrame([{
+        "total_terms": total_input,
+        "relevant": len(df_relevant),
+        "irrelevant": len(df_irrelevant),
+        "review": len(df_review),
+        "root_negatives": len(root_negatives),
+        "error_001_status": "PASS" if integrity_ok else "FAIL",
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }])
 
-    # -----------------------------
-    # FILE NAME (SAFE + UNIQUE)
-    # -----------------------------
+    # =====================================================
+    # FILE OUTPUT
+    # =====================================================
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_path = OUTPUT_DIR / f"ppc_audit_{timestamp}.xlsx"
 
-    # -----------------------------
-    # WRITE EXCEL (FAIL SAFE)
-    # -----------------------------
-    try:
-        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
 
-            relevant_df.to_excel(writer, sheet_name="Relevant", index=False)
-            irrelevant_df.to_excel(writer, sheet_name="Irrelevant", index=False)
-            review_df.to_excel(writer, sheet_name="Review", index=False)
-            low_conf_df.to_excel(writer, sheet_name="Low Confidence", index=False)
+        summary.to_excel(writer, sheet_name="Summary", index=False)
 
-            pd.DataFrame({
-                "root_negative_terms": root_negatives
-            }).to_excel(writer, sheet_name="Root Negatives", index=False)
+        df_relevant.to_excel(writer, sheet_name="Relevant Terms", index=False)
+        df_irrelevant.to_excel(writer, sheet_name="Irrelevant Terms", index=False)
+        df_review.to_excel(writer, sheet_name="Review Queue", index=False)
 
-            summary = pd.DataFrame([{
-                "total_terms": len(df),
-                "relevant": len(relevant_df),
-                "irrelevant": len(irrelevant_df),
-                "review": len(review_df),
-                "low_confidence": len(low_conf_df),
-                "generated_at": timestamp
-            }])
-
-            summary.to_excel(writer, sheet_name="Summary", index=False)
-
-    except Exception as e:
-        # NEVER crash app — return fallback info instead
-        fallback_path = OUTPUT_DIR / "export_failed.txt"
-        fallback_path.write_text(str(e))
-        return str(fallback_path)
+        df_roots.to_excel(writer, sheet_name="Root Negatives", index=False)
 
     return str(file_path)
