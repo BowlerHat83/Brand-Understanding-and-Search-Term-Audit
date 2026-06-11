@@ -1,0 +1,221 @@
+import streamlit as st
+import pandas as pd
+
+from core.stage1_brand import (
+    generate_brand_draft,
+    save_brand_truth,
+    load_brand_truth
+)
+
+from core.stage2_audit import run_stage2_audit
+from core.stage3_export import export_to_excel
+
+
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+st.set_page_config(
+    page_title="PPC Search Term Auditor",
+    layout="wide"
+)
+
+
+# =========================================================
+# STATE INIT
+# =========================================================
+def init_state():
+    defaults = {
+        "stage": 1,
+        "stage1_data": None,
+        "stage2_output": None,
+        "search_terms": None
+    }
+
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+init_state()
+
+
+# =========================================================
+# STAGE 1 — BRAND SETUP (FULL UX WIZARD)
+# =========================================================
+def stage1():
+
+    st.title("🧠 Stage 1 — Brand Setup")
+
+    company = st.text_input("Company Name")
+    offering = st.text_input("Core Offering")
+    landing = st.text_input("Landing Page")
+
+    if st.button("Generate Brand Profile"):
+
+        if not company or not offering:
+            st.error("Please fill required fields")
+            return
+
+        with st.spinner("Generating brand intelligence..."):
+            draft = generate_brand_draft(company, offering, landing)
+
+        st.session_state.stage1_data = draft
+
+    data = st.session_state.stage1_data
+
+    if data:
+
+        st.subheader("Review & Edit Brand Intelligence")
+
+        brand_variants = st.text_area(
+            "Brand Variants (one per line)",
+            value="\n".join(data.get("brand_variants", [])),
+            height=150
+        )
+
+        junk_triggers = st.text_area(
+            "Junk / Negative Triggers (one per line)",
+            value="\n".join(data.get("explicit_junk_triggers", [])),
+            height=150
+        )
+
+        competitors = st.text_area(
+            "Direct Competitors (one per line)",
+            value="\n".join(data.get("direct_competitors", [])),
+            height=150
+        )
+
+        if st.button("Confirm Brand Setup → Continue to Audit"):
+
+            final = {
+                "company_name": company,
+                "core_offering": offering,
+                "brand_variants": [x.strip() for x in brand_variants.split("\n") if x.strip()],
+                "explicit_junk_triggers": [x.strip() for x in junk_triggers.split("\n") if x.strip()],
+                "direct_competitors": [x.strip() for x in competitors.split("\n") if x.strip()],
+            }
+
+            save_brand_truth(company, offering, final)
+
+            st.session_state.stage1_data = final
+            st.session_state.stage = 2
+            st.rerun()
+
+
+# =========================================================
+# STAGE 2 — AUDIT ENGINE (WITH PROGRESS UI)
+# =========================================================
+def stage2():
+
+    st.title("🔍 Stage 2 — Search Term Audit Engine")
+
+    if st.button("← Back to Brand Setup"):
+        st.session_state.stage = 1
+        st.rerun()
+
+    uploaded_file = st.file_uploader(
+        "Upload Google Ads Search Terms CSV",
+        type=["csv"]
+    )
+
+    if not uploaded_file:
+        return
+
+    df = pd.read_csv(uploaded_file)
+    search_terms = df.iloc[:, 0].dropna().astype(str).tolist()
+
+    st.info(f"{len(search_terms)} search terms loaded")
+
+    if st.button("Run Full Audit"):
+
+        stage1_data = st.session_state.stage1_data
+
+        progress = st.progress(0)
+        status = st.empty()
+
+        # IMPORTANT: single full run (no duplication)
+        results = []
+        batch_size = 30
+
+        total = len(search_terms)
+        processed = 0
+
+        for i in range(0, total, batch_size):
+
+            batch = search_terms[i:i + batch_size]
+
+            status.text(f"Processing batch {i//batch_size + 1}...")
+
+            batch_output = run_stage2_audit(batch, stage1_data)
+
+            results.extend(batch_output["results"])
+
+            processed += len(batch)
+
+            progress.progress(min(processed / total, 1.0))
+
+        # rebuild final structure once
+        final_output = run_stage2_audit(search_terms, stage1_data)
+
+        st.session_state.stage2_output = final_output
+        st.session_state.search_terms = search_terms
+
+        st.success("Audit complete")
+        st.session_state.stage = 3
+        st.rerun()
+
+
+# =========================================================
+# STAGE 3 — EXPORT LEDGER
+# =========================================================
+def stage3():
+
+    st.title("📊 Stage 3 — Accountability Ledger")
+
+    if st.button("← Back to Audit"):
+        st.session_state.stage = 2
+        st.rerun()
+
+    output = st.session_state.stage2_output
+
+    if not output:
+        st.warning("No audit results found")
+        return
+
+    st.subheader("Audit Summary")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Total", len(output["results"]))
+    col2.metric("Relevant", len(output["relevant"]))
+    col3.metric("Irrelevant", len(output["irrelevant"]))
+    col4.metric("Review", len(output["review"]))
+
+    if st.button("Generate Excel Ledger"):
+
+        with st.spinner("Building workbook..."):
+
+            file_path = export_to_excel(output)
+
+        st.success("Ledger ready")
+
+        with open(file_path, "rb") as f:
+            st.download_button(
+                "Download Excel Workbook",
+                f,
+                file_name="ppc_audit.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+
+# =========================================================
+# ROUTER
+# =========================================================
+if st.session_state.stage == 1:
+    stage1()
+
+elif st.session_state.stage == 2:
+    stage2()
+
+elif st.session_state.stage == 3:
+    stage3()
