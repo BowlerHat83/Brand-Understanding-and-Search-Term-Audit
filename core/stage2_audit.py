@@ -1,32 +1,28 @@
 import json
 import time
 import random
-from typing import List, Dict
+from typing import List
 
+import streamlit as st
 from google import genai
 from google.genai import errors
 
 
-# -----------------------------
+# =========================================================
 # BATCHING
-# -----------------------------
-def chunk_list(items: List[str], chunk_size: int = 30):
-    """
-    Splits list into fixed-size batches.
-    """
-    for i in range(0, len(items), chunk_size):
-        yield items[i:i + chunk_size]
+# =========================================================
+def chunk_list(items: List[str], size: int = 30):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
 
 
-# -----------------------------
-# SYSTEM PROMPT (STRICT OUTPUT CONTRACT)
-# -----------------------------
-STAGE2_SYSTEM_PROMPT = """
-You are a PPC search term classification engine.
+# =========================================================
+# SYSTEM PROMPT
+# =========================================================
+SYSTEM_PROMPT = """
+You are a PPC search term classifier.
 
-You must classify each search term against a brand blueprint.
-
-Return ONLY valid JSON in this format:
+Return ONLY JSON:
 
 {
   "results": [
@@ -40,123 +36,133 @@ Return ONLY valid JSON in this format:
 }
 
 Rules:
-- Output MUST contain exactly one result per input term
+- One result per input term
 - Preserve order exactly
-- No missing or extra items
-- confidence must be 0.0 to 1.0
-- No markdown
-- No extra keys
-- Keep reasoning short (max 15 words per item)
+- confidence 0–1
+- no extra keys
 """
 
 
-# -----------------------------
-# GEMINI CALL (SINGLE BATCH)
-# -----------------------------
-def _classify_batch(client, batch: List[str], blueprint: dict) -> List[dict]:
-    """
-    Sends one batch to Gemini and returns parsed results.
-    """
+# =========================================================
+# CLIENT
+# =========================================================
+def _get_client():
+    api_key = st.secrets.get("GEMINI_API_KEY")
 
-    user_prompt = {
+    if not api_key:
+        raise RuntimeError("Missing GEMINI_API_KEY in secrets")
+
+    return genai.Client(api_key=api_key)
+
+
+# =========================================================
+# SINGLE BATCH (HARDENED)
+# =========================================================
+def _classify_batch(client, batch, blueprint):
+    payload = {
         "blueprint": blueprint,
         "search_terms": batch
     }
 
-    max_retries = 4
+    max_retries = 2  # small + fast fail
 
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
-                contents=json.dumps(user_prompt),
+                contents=json.dumps(payload),
                 config={
-                    "system_instruction": STAGE2_SYSTEM_PROMPT,
+                    "system_instruction": SYSTEM_PROMPT,
                     "response_mime_type": "application/json",
                     "temperature": 0.2,
                 },
             )
 
             data = json.loads(response.text)
-
             results = data.get("results", [])
 
             # -----------------------------
-            # LINEAGE CHECK (CRITICAL)
+            # SAFE LENGTH HANDLING (NO CRASH)
             # -----------------------------
-            if len(results) != len(batch):
-                raise ValueError("Lineage mismatch: input != output length")
+            if not isinstance(results, list):
+                raise ValueError("Invalid results format")
 
-            # -----------------------------
-            # VALIDATION SANITIZATION
-            # -----------------------------
             cleaned = []
-            for i, item in enumerate(results):
+
+            for i, term in enumerate(batch):
+                item = results[i] if i < len(results) else {}
+
                 cleaned.append({
-                    "term": batch[i],
+                    "term": term,
                     "classification": item.get("classification", "review"),
-                    "confidence": float(item.get("confidence", 0.0)),
-                    "reason": item.get("reason", "")[:100]
+                    "confidence": float(item.get("confidence", 0.0) or 0.0),
+                    "reason": (item.get("reason", "") or "")[:120]
                 })
 
             return cleaned
 
+        except (json.JSONDecodeError, ValueError):
+            # bad output → retry once quickly
+            continue
+
         except errors.APIError as e:
             code = getattr(e, "code", None)
 
-            if code in [429, 503] and attempt < max_retries - 1:
-                time.sleep((2 ** attempt) + random.uniform(0, 0.5))
+            # NO LONG BACKOFF (prevents multi-minute stalls)
+            if code in [429, 503]:
+                time.sleep(1.0)
                 continue
 
-            raise RuntimeError(f"Gemini API error ({code}): {e}")
+            return _fallback_batch(batch)
 
-        except (json.JSONDecodeError, ValueError):
-            if attempt < max_retries - 1:
-                time.sleep(0.5)
-                continue
+        except Exception:
+            return _fallback_batch(batch)
 
-        except Exception as e:
-            raise RuntimeError(f"Unexpected error: {e}")
+    return _fallback_batch(batch)
 
-    # -----------------------------
-    # FALLBACK (NEVER BREAK PIPELINE)
-    # -----------------------------
+
+# =========================================================
+# FALLBACK (NEVER FAIL PIPELINE)
+# =========================================================
+def _fallback_batch(batch):
     return [
         {
             "term": t,
             "classification": "review",
             "confidence": 0.5,
-            "reason": "fallback due to API failure"
+            "reason": "fallback"
         }
         for t in batch
     ]
 
 
-# -----------------------------
-# MAIN PIPELINE FUNCTION
-# -----------------------------
-def run_stage2_audit(
-    search_terms: List[str],
-    blueprint: dict,
-    batch_size: int = 30
-) -> List[dict]:
-    """
-    Full audit pipeline for search terms.
-    """
+# =========================================================
+# MAIN PIPELINE
+# =========================================================
+def run_stage2_audit(search_terms, blueprint, batch_size=30, progress_hook=None):
 
-    client = genai.Client()
+    client = _get_client()
 
-    all_results = []
-
+    results = []
     batches = list(chunk_list(search_terms, batch_size))
-    total_batches = len(batches)
 
-    for idx, batch in enumerate(batches):
+    total = len(batches)
+
+    for i, batch in enumerate(batches, start=1):
 
         batch_results = _classify_batch(client, batch, blueprint)
-        all_results.extend(batch_results)
+        results.extend(batch_results)
 
-        # lightweight progress feedback (Streamlit friendly)
-        print(f"Processed batch {idx + 1}/{total_batches}")
+        # -----------------------------
+        # UI PROGRESS SAFE UPDATE
+        # -----------------------------
+        if progress_hook:
+            try:
+                progress_hook(i, total)
+            except Exception:
+                pass
 
-    return all_results
+        # small throttle (prevents API spikes, not stalls)
+        time.sleep(0.1)
+
+    return results
