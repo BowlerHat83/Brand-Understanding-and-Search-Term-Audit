@@ -3,7 +3,11 @@ import google.generativeai as genai
 
 def initialize_gemini():
     """Initializes and returns the Gemini API framework using Streamlit Secrets or Environment Variables."""
-    if "GEMINI_API_KEY" in os.environ:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    elif "GEMINI_API_KEY" in os.get_env(): # Fallback check
-        genai.configure(api_key=os.get_env()["GEMINI_API_KEY"])
+    # Check for Streamlit's secrets management first, then fallback to standard environment vars
+    api_key = os.getenv("GEMINI_API_KEY")
+    
+    if api_key:
+        genai.configure(api_key=api_key)
+    else:
+        # If neither are found, let the system know so it doesn't fail silently later
+        print("⚠️ WARNING: GEMINI_API_KEY not found in environment variables.")
