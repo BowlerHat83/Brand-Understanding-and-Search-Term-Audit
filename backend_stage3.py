@@ -8,6 +8,7 @@ def push_to_google_sheets(cache_key: str, data_payload: dict) -> str:
     """
     Compiles structured data frames directly onto distinct spreadsheet tabs via 
     the Google Sheets API using credentials stored in Streamlit Cloud Secrets.
+    Instantly shares ownership/editing access with the specified human email.
     Returns the live editable workspace direct access URL string.
     """
     # Define the security scopes required to create and write files in Google Drive
@@ -30,6 +31,12 @@ def push_to_google_sheets(cache_key: str, data_payload: dict) -> str:
         
         # Spin up a completely fresh Google Spreadsheet workbook
         spreadsheet = client.create(sheet_title)
+        
+        # --- AUTOMATED ACCESS INJECTION ---
+        # Crucial fix to bypass file isolation. Grants full editing privileges 
+        # to your human Google account instantly upon file creation.
+        YOUR_GOOGLE_EMAIL = "your-actual-email@gmail.com"  # <-- CHANGE THIS TO YOUR REAL GOOGLE EMAIL
+        spreadsheet.share(YOUR_GOOGLE_EMAIL, perm_type='user', role='writer')
         
         # Define the 5 mandatory tabs for the ledger workbook
         tabs_to_create = [
