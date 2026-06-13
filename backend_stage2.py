@@ -1,24 +1,32 @@
 import re
+import json
 from pydantic import BaseModel, Field
 from typing import List, Literal
 from google import genai
 from google.genai import types
 
-class ClassificationResult(BaseModel):
+# 1. Define the schema for a single term's output
+class SingleTermClassification(BaseModel):
+    search_term: str = Field(description="The exact search term being evaluated.")
     classification: Literal["relevant", "irrelevant", "review"] = Field(description="Must select exactly one.")
-    confidence: float = Field(description="Confidence decimal score between 0.00 and 1.00.")
-    reason: str = Field(description="Short reason explaining why it was classified this way. STRICT MAX 5 WORDS.")
+    confidence: float = Field(description="Confidence score between 0.00 and 1.00.")
+    reason: str = Field(description="Max 5 words explaining the decision.")
 
-def classify_single_term(search_term: str, locked_rules: dict) -> dict:
+# 2. Define the schema for the batch wrapper
+class BatchClassificationResponse(BaseModel):
+    results: List[SingleTermClassification] = Field(description="Array containing the classification data for every single input term.")
+
+def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dict]:
     """
-    Classifies an individual search term using the approved ruleset rules matrix.
+    Evaluates a batch of search terms simultaneously in a single API call.
     """
     client = genai.Client()
     
     prompt = f"""
-    Evaluate this search term query: "{search_term}"
+    Evaluate the following list of search term queries:
+    {json.dumps(terms_batch)}
     
-    Against these absolute rulesets criteria:
+    Against these absolute brand guidelines:
     - Allowed Brand Variants: {locked_rules.get('brand_variants', [])}
     - Competitor Red Flags: {locked_rules.get('competitors', [])}
     - Protected Core Phrases: {locked_rules.get('protected_terms', [])}
@@ -26,10 +34,11 @@ def classify_single_term(search_term: str, locked_rules: dict) -> dict:
     """
     
     system_prompt = (
-        "You are an aggressive but highly accurate Google Ads Negative Keyword filter agent. "
-        "Classify the term as 'relevant', 'irrelevant', or 'review'. "
-        "Only lean into 'review' if a phrase directly contradicts itself or overlaps equally "
-        "between relevant and irrelevant patterns. Keep reasoning at a maximum of 5 words."
+        "You are an expert Google Ads optimization algorithm. Process the array of search terms accurately. "
+        "For each term, determine if it is 'relevant', 'irrelevant', or needs 'review'. "
+        "Do not default to 'review' unless there is an absolute tie or severe semantic contradiction. "
+        "You must output a result for EVERY single term provided in the input list. Do not drop any terms. "
+        "Keep your reason strictly under 5 words."
     )
     
     try:
@@ -39,51 +48,37 @@ def classify_single_term(search_term: str, locked_rules: dict) -> dict:
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 response_mime_type="application/json",
-                response_schema=ClassificationResult,
-                temperature=0.0
+                response_schema=BatchClassificationResponse,
+                temperature=0.0  # Kept at 0.0 for deterministic precision
             )
         )
-        parsed = ClassificationResult.model_validate_json(response.text).model_dump()
-        # Enforce max 5 word ceiling constraint programmatically
-        words = parsed['reason'].split()
-        if len(words) > 5:
-            parsed['reason'] = " ".join(words[:5])
-        return parsed
+        
+        # Parse and validate the response
+        parsed_data = BatchClassificationResponse.model_validate_json(response.text).model_dump()
+        return parsed_data["results"]
+        
     except Exception as e:
-        raise RuntimeError(f"Audit failure during search term classification: {str(e)}")
+        raise RuntimeError(f"Batch processing error: {str(e)}")
 
 def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str]) -> dict:
-    """
-    Pure Python math matrix processing engine to extract broad match candidates.
-    Isolates single terms appearing uniquely in the irrelevant bucket.
-    """
+    """ Pure Python math engine to isolate broad match negative candidates (unchanged) """
     word_counts = {}
-    # Build a tokenized set of any word that is safely kept in relevant or review arrays
     protected_tokens = set()
     for term in saved_terms:
         for word in re.findall(r'\b\w+\b', str(term).lower()):
             protected_tokens.add(word)
             
-    # Parse individual single tokens from the bad search queries
     for term in irrelevant_terms:
         words_in_phrase = set(re.findall(r'\b\w+\b', str(term).lower()))
         for word in words_in_phrase:
             if word not in protected_tokens and not word.isdigit():
                 word_counts[word] = word_counts.get(word, 0) + 1
                 
-    # Filter only tokens appearing multiple times
     root_negatives = {word: count for word, count in word_counts.items() if count > 1}
-    # Sort descending by impact strength
     return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
 
 def apply_ads_notation(term: str) -> str:
-    """
-    Applies Google Ads syntax formatting structure rules cleanly.
-    """
+    """ Formats strings for Google Ads syntax """
     cleaned = str(term).strip()
-    if not cleaned:
-        return ""
-    if len(cleaned.split()) == 1:
-        return cleaned.lower()  # Broad match
-    else:
-        return f'"{cleaned.lower()}"'  # Phrase match
+    if not cleaned: return ""
+    return cleaned.lower() if len(cleaned.split()) == 1 else f'"{cleaned.lower()}"'
