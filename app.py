@@ -2,10 +2,8 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-import time
-import threading
 
-# Import backend modules
+# Import split backend files
 import backend_stage1
 import backend_stage2
 import backend_stage3
@@ -20,40 +18,6 @@ if "root_negatives" not in st.session_state: st.session_state.root_negatives = N
 
 CACHE_DIR = "brand_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
-
-def run_smooth_progress(target_function, args, success_message="Complete!"):
-    """Wrapper that smoothly updates the UI progress bar while background tasks process."""
-    progress_bar = st.progress(0)
-    status_msg = st.empty()
-    
-    result_container = {}
-    
-    def worker():
-        try:
-            result_container['data'] = target_function(*args)
-        except Exception as e:
-            result_container['error'] = str(e)
-
-    # Spawn thread to run background API tasks without blocking main thread
-    t = threading.Thread(target=worker)
-    t.start()
-    
-    current_progress = 0
-    while t.is_alive():
-        # Gradually fill the loading bar up to 95% while waiting
-        if current_progress < 95:
-            current_progress += 5
-            progress_bar.progress(current_progress)
-            status_msg.info(f"Processing data streams... {current_progress}%")
-        time.sleep(0.15)
-        
-    progress_bar.progress(100)
-    status_msg.success(success_message)
-    time.sleep(0.4)
-    progress_bar.empty()
-    status_msg.empty()
-    
-    return result_container.get('data', {"error": result_container.get('error', 'Unknown execution fault')})
 
 # --- STAGE 1 UI ROUTING ---
 if st.session_state.stage == 1:
@@ -79,14 +43,11 @@ if st.session_state.stage == 1:
             elif not core_offering: st.error("🚨 ERR_AUTH_02: Missing Core Offering.")
             elif not landing_page: st.error("🚨 ERR_AUTH_03: Missing Landing Page Link.")
             else:
-                # Trigger smooth animated loader
-                res = run_smooth_progress(
-                    backend_stage1.analyze_brand_profile, 
-                    (brand_name, core_offering, landing_page),
-                    "Profile Formulated!"
-                )
+                # High-speed inline processing animation
+                with st.spinner("Synthesizing core brand intelligence parameters..."):
+                    res = backend_stage1.analyze_brand_profile(brand_name, core_offering, landing_page)
                 
-                if isinstance(res, dict) and "error" in res:
+                if "error" in res:
                     st.error(res["error"])
                 else:
                     st.session_state.brand_understanding = res
@@ -95,13 +56,20 @@ if st.session_state.stage == 1:
 
         if st.session_state.brand_understanding:
             st.markdown("### ✍️ Refine Knowledge Profile")
+            st.caption("Review extracted parameters before locking them in as Absolute Truth.")
+            
             bv = st.data_editor(st.session_state.brand_understanding.get("brand_variants", []), num_rows="dynamic", key="ebv")
             cb = st.data_editor(st.session_state.brand_understanding.get("competitor_brands", []), num_rows="dynamic", key="ecb")
             pt = st.data_editor(st.session_state.brand_understanding.get("protected_terms", []), num_rows="dynamic", key="ept")
             ni = st.data_editor(st.session_state.brand_understanding.get("irrelevant_niches", []), num_rows="dynamic", key="eni")
             
             if st.button("Confirm & Lock Base Truth"):
-                final_truth = {"brand_variants": bv, "competitor_brands": cb, "protected_terms": pt, "irrelevant_niches": ni}
+                final_truth = {
+                    "brand_variants": [v for v in bv if v],
+                    "competitor_brands": [v for v in cb if v],
+                    "protected_terms": [v for v in pt if v],
+                    "irrelevant_niches": [v for v in ni if v]
+                }
                 name = f"{st.session_state.current_brand_name} | {st.session_state.current_core_offering}".replace("/", "-")
                 with open(os.path.join(CACHE_DIR, f"{name}.json"), "w") as f:
                     json.dump(final_truth, f)
@@ -122,25 +90,18 @@ elif st.session_state.stage == 2:
             col = [c for c in df_input.columns if 'term' in c.lower() or 'query' in c.lower()][0]
             raw_terms = df_input[col].dropna().astype(str).unique().tolist()
             
-            # Sub-function helper for processing split-batch data sequences cleanly inside thread wrapper
-            def batch_processing_wrapper(terms, truth):
-                all_results = []
-                batch_size = 150
-                for i in range(0, len(terms), batch_size):
-                    batch_res = backend_stage2.classify_search_terms_batch(terms[i:i+batch_size], truth)
-                    all_results.extend(batch_res)
-                return all_results
-
-            # Pass the batch logic to our smooth loader framework
-            results = run_smooth_progress(batch_processing_wrapper, (raw_terms, st.session_state.locked_truth), "Terms Audit Finalized!")
+            with st.spinner("Processing deep data vectors simultaneously across parallel API threads..."):
+                results = backend_stage2.classify_search_terms_concurrent(raw_terms, st.session_state.locked_truth)
+            
             df_classified = pd.DataFrame(results)
             
             if len(raw_terms) != len(df_classified):
-                st.error("🚨 ERR_PIPELINE_MISMATCH: Row delta logic error detected between payload stages.")
+                st.error("🚨 ERR_PIPELINE_MISMATCH: Row discrepancy detected.")
                 
             st.session_state.root_negatives = backend_stage2.calculate_root_negatives(df_classified)
             st.session_state.classification_results = df_classified
             st.session_state.total_input_count = len(raw_terms)
+            st.success("Terms Audit Finalized!")
 
     if st.session_state.classification_results is not None:
         df_res = st.session_state.classification_results
