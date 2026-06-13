@@ -1,56 +1,50 @@
-import json
-import google.generativeai as genai
-import google.api_core.exceptions as google_exceptions
-from backend_config import initialize_gemini
+import os
+from pydantic import BaseModel, Field
+from typing import List
+from google import genai
+from google.genai import types
 
-def analyze_brand_profile(brand_name, core_offering, landing_page):
+# Define the structured output format for the brand profile
+class BrandProfile(BaseModel):
+    brand_variants: List[str] = Field(description="Variations, misspellings, abbreviations of the brand name.")
+    competitors: List[str] = Field(description="Known competitor brand names or companies matching this space.")
+    protected_terms: List[str] = Field(description="High-intent commercial terms essential to save (e.g., service buy words).")
+    irrelevant_terms: List[str] = Field(description="Concepts, search angles, or target intents completely disconnected from the offering.")
+
+def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> dict:
     """
-    Stage 1 Backend: High-speed text generation with local Python parsing.
-    Bypasses the slow API JSON schema validation engine.
+    Analyzes brand positioning and returns a structured profile ruleset.
     """
-    initialize_gemini()
+    # Initialize the official modern SDK client
+    # Assumes GEMINI_API_KEY is configured in your environment variables
+    client = genai.Client()
+    
+    prompt = f"""
+    Analyze the following brand context for a Google Ads account:
+    - Brand Name: {brand_name}
+    - Core Offering: {core_offering}
+    - Target Landing Page context: {landing_page}
+    
+    Identify brand variants, competitor brands, core protected terms, and completely irrelevant angles/themes.
+    """
+    
     try:
-        model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=(
+                    "You are a meticulous PPC Strategy architect. Extract definitive brand guidelines. "
+                    "Be highly specific; do not use vague categories."
+                ),
+                response_mime_type="application/json",
+                response_schema=BrandProfile,
+                temperature=0.1
+            )
+        )
+        # Parse output safely via validation schema
+        return BrandProfile.model_validate_json(response.text).model_dump()
         
-        prompt = f"""
-        You are an expert Google Ads PPC Architect. Synthesize a core PPC keyword taxonomy based on this brand data:
-        - Brand Name: {brand_name}
-        - Core Offering: {core_offering}
-        - Landing Page: {landing_page}
-        
-        Analyze the relationship between the brand name and the core offering. 
-        Identify immediate variations of the brand name, potential broad market competitor terms to look out for, exact target terms that must never be blocked, and generic irrelevant industries/niches that clearly mismatch this offering.
-        
-        CRITICAL: Your response must be raw text formatted exactly like a clean JSON object. Do not wrap it in markdown code blocks like ```json. 
-        
-        Expected Output Format:
-        {{
-          "brand_variants": ["{brand_name.lower()}"],
-          "competitor_brands": [],
-          "protected_terms": ["{core_offering.lower()}"],
-          "irrelevant_niches": []
-        }}
-        """
-        
-        # High-speed raw content generation
-        response = model.generate_content(prompt)
-        clean_text = response.text.strip()
-        
-        # Strip out any markdown blocks if the model accidentally includes them
-        if clean_text.startswith("```"):
-            clean_text = clean_text.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
-            if clean_text.startswith("json"):
-                clean_text = clean_text.split("\n", 1)[1].strip()
-                
-        return json.loads(clean_text)
-        
-    except google_exceptions.ResourceExhausted:
-        return {"error": "🚨 ERR_GEMINI_QUOTA_EXCEEDED: Rate limit reached. Wait 60 seconds."}
     except Exception as e:
-        # Fallback dictionary to ensure the app never freezes or crashes
-        return {
-            "brand_variants": [brand_name.lower(), brand_name.replace(" ", "").lower()],
-            "competitor_brands": ["competitor check required"],
-            "protected_terms": [core_offering.lower()],
-            "irrelevant_niches": ["free", "cheap", "diy", "jobs"]
-        }
+        # Wrap up backend exceptions to re-throw clearly to the main app wrapper
+        raise RuntimeError(f"Gemini processing failure: {str(e)}")
