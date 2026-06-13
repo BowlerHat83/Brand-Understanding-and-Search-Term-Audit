@@ -1,19 +1,47 @@
-import io
+import gspread
+from datetime import datetime
+from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 
-def build_excel_ledger(df_metrics, df_classified, root_negatives_list):
-    """Compiles a memory-buffered multi-tab spreadsheet to return straight to the client UI."""
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_metrics.to_excel(writer, sheet_name='Metrics Data', index=False)
+def push_to_google_sheets(cache_key: str, data_payload: dict) -> str:
+    """
+    Compiles data frames directly onto distinct spreadsheet tabs via Google Sheets API.
+    Returns the live editable workspace direct access URL string.
+    """
+    # Define API scopes needed
+    scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    
+    try:
+        # Load credentials (Streamlit handles secrets injection to files/env variables)
+        creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scopes)
+        client = gspread.authorize(creds)
         
-        df_classified[df_classified['classification'] == 'relevant'][['term', 'confidence_score']].to_excel(writer, sheet_name='Relevant Terms', index=False)
+        # Format filename convention: Brand Name | Core Offering | YYYY-MM-DD
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        sheet_title = f"{cache_key} | {current_date}"
         
-        df_classified[df_classified['classification'] == 'irrelevant'][['term', 'confidence_score', 'reasoning']].to_excel(writer, sheet_name='Irrelevant Terms', index=False)
+        # Spin up a completely fresh target worksheet workbook layout container
+        spreadsheet = client.create(sheet_title)
         
-        df_classified[df_classified['classification'] == 'review'][['term', 'confidence_score']].to_excel(writer, sheet_name='Review Queue', index=False)
+        # Define target sheets processing list order map
+        tabs_to_create = ["Metrics Data", "Relevant Search Terms", "Irrelevant Search Terms", "Review Queue", "Root Negatives"]
         
-        df_roots = pd.DataFrame(root_negatives_list)[['root_negative', 'blocked_count']] if root_negatives_list else pd.DataFrame(columns=['root_negative', 'blocked_count'])
-        df_roots.to_excel(writer, sheet_name='Root Negatives', index=False)
+        for i, tab_name in enumerate(tabs_to_create):
+            df = pd.DataFrame(data_payload.get(tab_name, []))
+            
+            # gspread initiates spreadsheets with one default initial tab called 'Sheet1'
+            if i == 0:
+                worksheet = spreadsheet.get_worksheet(0)
+                worksheet.update_title(tab_name)
+            else:
+                worksheet = spreadsheet.add_worksheet(title=tab_name, rows="1000", cols="20")
+                
+            # Direct formatting dump execution onto Google grid pipelines
+            if not df.empty:
+                worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+                
+        # Return unique dashboard url identifier key pointer directly back to UI layout
+        return spreadsheet.url
         
-    return output.getvalue()
+    except Exception as e:
+        raise RuntimeError(f"Google Drive cloud integration file generation failed: {str(e)}")
