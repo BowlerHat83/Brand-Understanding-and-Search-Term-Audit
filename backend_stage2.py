@@ -1,95 +1,89 @@
 import re
-import json
-import collections
-import pandas as pd
-import google.generativeai as genai
-import google.api_core.exceptions as google_exceptions
-from backend_config import initialize_gemini
+from pydantic import BaseModel, Field
+from typing import List, Literal
+from google import genai
+from google.genai import types
 
-def classify_search_terms_batch(terms_list, brand_truth):
-    """Batches search terms to optimize speed and drop costs drastically."""
-    initialize_gemini()
+class ClassificationResult(BaseModel):
+    classification: Literal["relevant", "irrelevant", "review"] = Field(description="Must select exactly one.")
+    confidence: float = Field(description="Confidence decimal score between 0.00 and 1.00.")
+    reason: str = Field(description="Short reason explaining why it was classified this way. STRICT MAX 5 WORDS.")
+
+def classify_single_term(search_term: str, locked_rules: dict) -> dict:
+    """
+    Classifies an individual search term using the approved ruleset rules matrix.
+    """
+    client = genai.Client()
+    
+    prompt = f"""
+    Evaluate this search term query: "{search_term}"
+    
+    Against these absolute rulesets criteria:
+    - Allowed Brand Variants: {locked_rules.get('brand_variants', [])}
+    - Competitor Red Flags: {locked_rules.get('competitors', [])}
+    - Protected Core Phrases: {locked_rules.get('protected_terms', [])}
+    - Clear Irrelevant Elements: {locked_rules.get('irrelevant_terms', [])}
+    """
+    
+    system_prompt = (
+        "You are an aggressive but highly accurate Google Ads Negative Keyword filter agent. "
+        "Classify the term as 'relevant', 'irrelevant', or 'review'. "
+        "Only lean into 'review' if a phrase directly contradicts itself or overlaps equally "
+        "between relevant and irrelevant patterns. Keep reasoning at a maximum of 5 words."
+    )
+    
     try:
-        model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
-            generation_config={"response_mime_type": "application/json"}
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json",
+                response_schema=ClassificationResult,
+                temperature=0.0
+            )
         )
-        
-        prompt = f"""
-        You are an elite automated Google Ads script. Categorize the list of Search Terms based on the absolute Truth Profile provided below.
-        
-        Truth Profile: {json.dumps(brand_truth)}
-        Search Terms to Analyze: {json.dumps(terms_list)}
-        
-        CLASSIFICATION MANDATE:
-        - "relevant": Explicitly relates to the brand, core offering or variations.
-        - "irrelevant": Belongs to a competitor brand, mismatching intent, or irrelevant niches.
-        - "review": ONLY use as a last resort if context is genuinely missing.
-        
-        Return a strict JSON array matching this exact pattern:
-        {{
-          "results": [
-             {{ "term": "example query", "classification": "relevant/irrelevant/review", "confidence_score": 0.95, "reasoning": "Max 5 word logic" }}
-          ]
-        }}
-        """
-        response = model.generate_content(prompt)
-        return json.loads(response.text).get("results", [])
-        
-    except google_exceptions.ResourceExhausted:
-        return [{"term": t, "classification": "review", "confidence_score": 0.0, "reasoning": "ERR_GEMINI_QUOTA_EXCEEDED"} for t in terms_list]
-    except Exception:
-        return [{"term": t, "classification": "review", "confidence_score": 0.0, "reasoning": "ERR_GEMINI_SYSTEM_ERROR"} for t in terms_list]
+        parsed = ClassificationResult.model_validate_json(response.text).model_dump()
+        # Enforce max 5 word ceiling constraint programmatically
+        words = parsed['reason'].split()
+        if len(words) > 5:
+            parsed['reason'] = " ".join(words[:5])
+        return parsed
+    except Exception as e:
+        raise RuntimeError(f"Audit failure during search term classification: {str(e)}")
 
-def calculate_root_negatives(df_classified):
-    """Extracts high-impact single-word root negatives that don't cross-contaminate positive lists."""
-    irrelevant_terms = df_classified[df_classified['classification'] == 'irrelevant']['term'].tolist()
-    protected_terms = df_classified[df_classified['classification'].isin(['relevant', 'review'])]['term'].tolist()
-    
-    protected_words = set()
-    for term in protected_terms:
-        protected_words.update(re.findall(r'\b\w+\b', str(term).lower()))
-    
-    irrelevant_word_counts = collections.Counter()
-    word_to_terms_map = collections.defaultdict(set)
-    
+def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str]) -> dict:
+    """
+    Pure Python math matrix processing engine to extract broad match candidates.
+    Isolates single terms appearing uniquely in the irrelevant bucket.
+    """
+    word_counts = {}
+    # Build a tokenized set of any word that is safely kept in relevant or review arrays
+    protected_tokens = set()
+    for term in saved_terms:
+        for word in re.findall(r'\b\w+\b', str(term).lower()):
+            protected_tokens.add(word)
+            
+    # Parse individual single tokens from the bad search queries
     for term in irrelevant_terms:
-        words = set(re.findall(r'\b\w+\b', str(term).lower()))
-        for word in words:
-            if word not in protected_words and not word.isdigit() and len(word) > 2:
-                irrelevant_word_counts[word] += 1
-                word_to_terms_map[word].add(term)
+        words_in_phrase = set(re.findall(r'\b\w+\b', str(term).lower()))
+        for word in words_in_phrase:
+            if word not in protected_tokens and not word.isdigit():
+                word_counts[word] = word_counts.get(word, 0) + 1
                 
-    root_negatives = []
-    for word, count in irrelevant_word_counts.items():
-        if count >= 2:
-            root_negatives.append({
-                "root_negative": word,
-                "blocked_count": count,
-                "terms_blocked": list(word_to_terms_map[word])
-            })
-            
-    return sorted(root_negatives, key=lambda x: x['blocked_count'], reverse=True)
+    # Filter only tokens appearing multiple times
+    root_negatives = {word: count for word, count in word_counts.items() if count > 1}
+    # Sort descending by impact strength
+    return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
 
-def generate_google_ads_notation(df_classified, root_negatives_list):
-    """Formats keywords with broad/phrase match punctuation rules while omitting redundant rows."""
-    notation_list = []
-    root_words = {root['root_negative'] for root in root_negatives_list}
-    
-    for root in root_negatives_list:
-        notation_list.append(root['root_negative'])
-        
-    irrelevant_df = df_classified[df_classified['classification'] == 'irrelevant']
-    for _, row in irrelevant_df.iterrows():
-        term = str(row['term']).lower()
-        term_words = set(re.findall(r'\b\w+\b', term))
-        
-        if any(rw in term_words for rw in root_words):
-            continue # Already safely blocked by root word shortcut
-            
-        if len(term.split()) == 1:
-            notation_list.append(term)
-        else:
-            notation_list.append(f'"{term}"')
-            
-    return list(set(notation_list))
+def apply_ads_notation(term: str) -> str:
+    """
+    Applies Google Ads syntax formatting structure rules cleanly.
+    """
+    cleaned = str(term).strip()
+    if not cleaned:
+        return ""
+    if len(cleaned.split()) == 1:
+        return cleaned.lower()  # Broad match
+    else:
+        return f'"{cleaned.lower()}"'  # Phrase match
