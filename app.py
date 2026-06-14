@@ -57,7 +57,6 @@ if st.session_state.stage == 1:
     selected_cache = st.selectbox("Select a Profile Configuration Template", options=cache_options, index=0)
     
     # --- DYNAMIC CONTROLS SWITCH ---
-    # Case A: User selected a cached configuration profile template
     if selected_cache != "Create New":
         if st.session_state.brand_profile is None:
             try:
@@ -69,7 +68,6 @@ if st.session_state.stage == 1:
                 
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
-    # Case B: User wants to manually generate a new baseline configuration from scratch
     else:
         if st.session_state.get('last_selected_cache') != "Create New" and 'last_selected_cache' in st.session_state:
             st.session_state.brand_profile = None
@@ -119,7 +117,6 @@ if st.session_state.stage == 1:
 
     st.session_state.last_selected_cache = selected_cache
 
-    # Display data refinement matrices if data is present in memory workspace
     if st.session_state.brand_profile:
         st.markdown("### 📝 Refine Brand Understanding Rulesets")
         st.caption("Double-click individual cells to add custom items, clear rows, or correct terms before cementing absolute rules.")
@@ -188,32 +185,24 @@ elif st.session_state.stage == 2:
                 raw_count = len(df_preview[term_col_preview].dropna().drop_duplicates())
                 num_batches = (raw_count + BATCH_SIZE - 1) // BATCH_SIZE
                 
-                # --- NEW TIER-AWARE TIME CALCULATOR ---
-                st.markdown("### ⏱️ Choose Your Current API Quota Tier")
-                api_tier = st.radio(
-                    "Select API Key Type for Accurate Run Time Estimations:",
-                    options=["Free Tier Key (Google AI Studio Default)", "Pay-As-You-Go Key (Production Tier)"],
-                    horizontal=True
-                )
-                
-                if api_tier == "Free Tier Key (Google AI Studio Default)":
-                    if num_batches <= 1:
-                        total_seconds = 8
-                    else:
-                        total_seconds = 60 + (num_batches * 5)
+                # --- BACKEND CALCULATION: BOTH TIERS ---
+                # 1. Paid Tier Estimate
+                paid_seconds = max(int(num_batches * 1.5), 3)
+                if paid_seconds >= 60:
+                    paid_display = f"{paid_seconds // 60} min {paid_seconds % 60} sec" if paid_seconds % 60 > 0 else f"{paid_seconds // 60} min"
                 else:
-                    total_seconds = max(int(num_batches * 1.5), 3)
+                    paid_display = f"{paid_seconds} seconds"
                 
-                if total_seconds >= 60:
-                    mins = total_seconds // 60
-                    secs = total_seconds % 60
-                    time_display = f"{mins} min {secs} sec" if secs > 0 else f"{mins} min"
+                # 2. Free Tier Estimate (Accounting for 60s rate limits)
+                free_seconds = 8 if num_batches <= 1 else 60 + (num_batches * 5)
+                if free_seconds >= 60:
+                    free_display = f"{free_seconds // 60} min {free_seconds % 60} sec" if free_seconds % 60 > 0 else f"{free_seconds // 60} min"
                 else:
-                    time_display = f"{total_seconds} seconds"
+                    free_display = f"{free_seconds} seconds"
                 
                 st.warning(
                     f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} optimized API calls).\n\n"
-                    f"⏱️ **Estimated Run Time:** ~**{time_display}**"
+                    f"⏱️ **Estimated Run Time:** **{paid_display}** ({free_display} if using Free Tier)"
                 )
             else:
                 st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
