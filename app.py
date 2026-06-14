@@ -147,6 +147,8 @@ elif st.session_state.stage == 2:
     
     if uploaded_file:
         try:
+            # Safely rewind the file pointer before previewing
+            uploaded_file.seek(0)
             df_preview = pd.read_csv(uploaded_file)
             term_col_preview = next((c for c in df_preview.columns if "search term" in c.lower() or "query" in c.lower()), None)
             
@@ -169,6 +171,10 @@ elif st.session_state.stage == 2:
             st.error("Error Code: E002 - Search Term CSV ledger missing.")
         else:
             try:
+                # --- THE INSTANT REWIND FIX ---
+                # Resets stream back to position zero to fix empty-buffer errors
+                uploaded_file.seek(0)
+                
                 df_input = pd.read_csv(uploaded_file)
                 term_col = next((c for c in df_input.columns if "search term" in c.lower() or "query" in c.lower()), None)
                 search_terms = df_input[term_col].dropna().drop_duplicates().tolist()
