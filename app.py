@@ -46,8 +46,8 @@ if "audit_results" not in st.session_state:
 # ==========================================
 # 🗺️ PERSISTENT NAVIGATION HUB
 # ==========================================
-st.title("🛡️ Google Ads Negative Keyword Architect")
-st.write("Streamlining Search Term Reports (STR) with Human-in-the-Loop Validation.")
+st.title("🛡️ Google Ads Negative Keyworder")
+st.write("Google Ads Classification System build on Brand Understanding. A multi-stage tool to streamline PPC maintenance.")
 
 # Visual step-by-step indicator bar
 nav_cols = st.columns([1, 4, 1])
