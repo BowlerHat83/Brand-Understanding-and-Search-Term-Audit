@@ -46,15 +46,7 @@ if "audit_results" not in st.session_state:
 # ==========================================
 # 🗺️ PERSISTENT NAVIGATION HUB
 # ==========================================
-# --- TEMPORARY WIPE BUTTON (Remove after using) ---
-if st.button("🚨 DEBUG: Permanent Wipe All Cached Profiles"):
-    import shutil
-    if os.path.exists(CACHE_DIR):
-        shutil.rmtree(CACHE_DIR)
-        os.makedirs(CACHE_DIR)
-    st.success("All old cache files completely deleted from the server storage! Refresh the page.")
-    st.rerun()
-    
+
 st.title("🛡️ Google Ads Negative Keyword Architect")
 st.write("Streamlining Search Term Reports (STR) with Human-in-the-Loop Validation.")
 
