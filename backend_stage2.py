@@ -1,5 +1,6 @@
 import re
 import json
+import collections
 from pydantic import BaseModel, Field
 from typing import List, Literal
 from google import genai
@@ -62,27 +63,43 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
     except Exception as e:
         raise RuntimeError(f"Cloud Batch Matrix Engine failed on execution: {str(e)}")
 
-def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str]) -> dict:
-    """ Isolated pure Python string set extraction math (100% accurate, no API overhead) """
+def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], protected_terms: List[str] = None) -> dict:
+    """ 
+    Isolated pure Python string set extraction math.
+    Strips out and protects any individual tokens vital to the brand's core offering.
+    """
     word_counts = {}
     protected_tokens = set()
     
+    # Base extraction rules: don't extract tokens that are part of relevant/review terms
     for term in saved_terms:
         for word in re.findall(r'\b\w+\b', str(term).lower()):
             protected_tokens.add(word)
             
+    # Stage 1 Shield Extension: explicitly block core brand phrases or split individual tokens
+    if protected_terms:
+        for term in protected_terms:
+            for word in re.findall(r'\b\w+\b', str(term).lower()):
+                protected_tokens.add(word)
+                
     for term in irrelevant_terms:
         words_in_phrase = set(re.findall(r'\b\w+\b', str(term).lower()))
         for word in words_in_phrase:
-            if word not in protected_tokens and not word.isdigit():
+            if word not in protected_tokens and not word.isdigit() and len(word) > 2:
                 word_counts[word] = word_counts.get(word, 0) + 1
                 
-    root_negatives = {word: count for word, count in word_counts.items() if count > 1}
+    root_negatives = {word: count for word, count in word_counts.items() if count >= 1}
     return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
 
-def apply_ads_notation(term: str) -> str:
-    """ Correctly wraps strings into strict broad or phrase match layout parameters for Google Ads """
-    cleaned = str(term).strip()
+def apply_ads_notation(term: str, is_exact: bool = False) -> str:
+    """ 
+    Correctly wraps strings into strict parameter formats for Google Ads.
+    Safely handles phrase match vs exact match downgrades.
+    """
+    cleaned = str(term).strip().lower()
     if not cleaned: 
         return ""
-    return cleaned.lower() if len(cleaned.split()) == 1 else f'"{cleaned.lower()}"'
+        
+    if is_exact:
+        return f"[{cleaned}]"
+    return cleaned if len(cleaned.split()) == 1 else f'"{cleaned}"'
