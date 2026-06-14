@@ -132,13 +132,13 @@ if st.session_state.stage == 1:
             
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line)", 
-            placeholder="https://client.com/pricing\", "https://client.com/remarketing-resource\"
+            placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource",
             height=120
         )
         
         if st.button("Launch Brand Understanding Audit"):
-            if not brand_name or not core_offering or not landing_pages:
-                st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required text input containers were left blank. Please specify Brand Name, Core Offering, and Landing Page context to clear systemic validation.")
+            if not brand_name or campaign_type == "-Please Select-" or not core_offering or not landing_pages:
+                st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required input fields were left blank or unselected. Please specify a valid Brand Name, Campaign Type, Core Offering, and Landing Page dataset to clear systemic validation.")
             else:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
