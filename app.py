@@ -44,7 +44,7 @@ if "audit_results" not in st.session_state:
     st.session_state.audit_results = None
 
 # ==========================================
-# 🗺️ NEW FEATURE: PERSISTENT NAVIGATION HUB
+# 🗺️ PERSISTENT NAVIGATION HUB
 # ==========================================
 st.title("🛡️ Google Ads Negative Keyword Architect")
 st.write("Streamlining Search Term Reports (STR) with Human-in-the-Loop Validation.")
@@ -102,10 +102,15 @@ if st.session_state.stage == 1:
         with col2:
             core_offering = st.text_input("Core Offering of the Ad Group", value="")
             
-        landing_page = st.text_input("Target Landing Page Link/Context")
+        # --- MULTI-LANDING PAGE CONTEXT INGESTION ---
+        landing_pages = st.text_area(
+            "Target Landing Page Links & Context (One link per line, or describe funnel audience text directly)", 
+            placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource\nContext: Targeting lower-funnel users who abandoned carts.",
+            height=120
+        )
         
         if st.button("Launch Brand Understanding Audit"):
-            if not brand_name or not core_offering or not landing_page:
+            if not brand_name or not core_offering or not landing_pages:
                 st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required text input containers were left blank. Please specify Brand Name, Core Offering, and Landing Page context to clear systemic validation.")
             else:
                 progress_bar = st.progress(0)
@@ -115,7 +120,8 @@ if st.session_state.stage == 1:
                     status_text.text("Connecting to Gemini AI Engine...")
                     progress_bar.progress(25)
                     
-                    raw_profile = run_brand_audit(brand_name, core_offering, landing_page)
+                    # Passes the aggregated multi-line context block seamlessly into the backend analysis loop
+                    raw_profile = run_brand_audit(brand_name, core_offering, landing_pages)
                     progress_bar.progress(75)
                     
                     status_text.text("Structuring core framework rulesets...")
