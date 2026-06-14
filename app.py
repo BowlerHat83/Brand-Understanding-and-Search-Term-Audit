@@ -23,7 +23,9 @@ if not os.path.exists(CACHE_DIR):
 
 def get_cached_profiles():
     files = [f for f in os.listdir(CACHE_DIR) if f.endswith('.json')]
-    return ["Create New"] + [f.replace('.json', '') for f in files]
+    # Sort the files alphabetically before adding the "Create New" option
+    sorted_files = sorted([f.replace('.json', '') for f in files], key=str.lower)
+    return ["Create New"] + sorted_files
 
 def load_cached_profile(filename):
     with open(os.path.join(CACHE_DIR, f"{filename}.json"), "r") as f:
@@ -133,7 +135,7 @@ if st.session_state.stage == 1:
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line)", 
             placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource",
-            height=100
+            height=120
         )
         
         if st.button("Launch Brand Understanding Audit"):
