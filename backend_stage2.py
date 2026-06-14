@@ -65,30 +65,34 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
 
 def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], protected_terms: List[str] = None) -> dict:
     """ 
-    Isolated pure Python string set extraction math.
-    Strips out and protects any individual tokens vital to the brand's core offering.
+    Pure Python string compression math.
+    Extracts root negatives ONLY if they appear across multiple irrelevant search terms (count >= 2).
     """
     word_counts = {}
     protected_tokens = set()
     
-    # Base extraction rules: don't extract tokens that are part of relevant/review terms
+    # 1. Base safety shield: never extract tokens appearing in approved relevant or review words
     for term in saved_terms:
         for word in re.findall(r'\b\w+\b', str(term).lower()):
             protected_tokens.add(word)
             
-    # Stage 1 Shield Extension: explicitly block core brand phrases or split individual tokens
+    # 2. Stage 1 safety shield extension: explicitly protect core brand phrases/sub-words
     if protected_terms:
         for term in protected_terms:
             for word in re.findall(r'\b\w+\b', str(term).lower()):
                 protected_tokens.add(word)
                 
+    # 3. Tally word instances across unique irrelevant phrases
     for term in irrelevant_terms:
+        # Using a set per phrase ensures we don't double-count a word repeated inside a single string
         words_in_phrase = set(re.findall(r'\b\w+\b', str(term).lower()))
         for word in words_in_phrase:
             if word not in protected_tokens and not word.isdigit() and len(word) > 2:
                 word_counts[word] = word_counts.get(word, 0) + 1
                 
-    root_negatives = {word: count for word, count in word_counts.items() if count >= 1}
+    # 🌟 THE COMPRESSION FILTER: Drop singletons. Must hit multiple (2 or more) terms to become a root.
+    root_negatives = {word: count for word, count in word_counts.items() if count >= 2}
+    
     return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
 
 def apply_ads_notation(term: str, is_exact: bool = False) -> str:
