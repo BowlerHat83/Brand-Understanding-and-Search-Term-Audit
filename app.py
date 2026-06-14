@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import streamlit as st
 import pandas as pd
 import json
+import re
 from datetime import datetime
 
 # --- RE-MAPPED TO MATCH YOUR EXACT GITHUB FILENAMES ---
@@ -104,29 +105,43 @@ if st.session_state.stage == 1:
 
     if st.session_state.brand_profile:
         st.markdown("### 📝 Refine Brand Understanding Rulesets")
-        st.caption("Double-click individual rows to make corrections or add custom keywords before cementing absolute truth rules.")
+        st.caption("Double-click individual cells to add custom items, clear rows, or correct terms before cementing absolute rules.")
         
         edited_profile = {}
-        c1, c2 = st.columns(2)
-        with c1:
+        
+        # --- 🎨 RE-FORMATTED STAGE 1 GRID LAYOUT ---
+        # Splitting into clear horizontal structural columns to avoid crowded stacking
+        row1_col1, row1_col2 = st.columns(2)
+        with row1_col1:
+            st.markdown("#### ✨ Allowed Brand Variants & Misspellings")
             df_bv = pd.DataFrame(st.session_state.brand_profile.get("brand_variants", []), columns=["Brand Variants"])
-            ed_bv = st.data_editor(df_bv, num_rows="dynamic", use_container_width=True)
+            ed_bv = st.data_editor(df_bv, num_rows="dynamic", use_container_width=True, key="editor_bv")
             edited_profile["brand_variants"] = ed_bv["Brand Variants"].dropna().tolist()
             
-            df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
-            ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True)
-            edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
-            
-        with c2:
+        with row1_col2:
+            st.markdown("#### 🛡️ Protected Core Offering Terms (Safety Shield)")
             df_prot = pd.DataFrame(st.session_state.brand_profile.get("protected_terms", []), columns=["Protected Core Terms"])
-            ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True)
+            ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True, key="editor_prot")
             edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
             
+        st.markdown("<br>", unsafe_text_html=True) # Structural visual separator spacer
+        
+        row2_col1, row2_col2 = st.columns(2)
+        with row2_col1:
+            st.markdown("#### 🚨 Competitor Target Brand Names (Red Flags)")
+            df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
+            ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True, key="editor_comp")
+            edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
+            
+        with row2_col2:
+            st.markdown("#### ❌ Clear Irrelevant Elements & Concepts")
             df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
-            ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True)
+            ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True, key="editor_irr")
             edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
             
-        if st.button("Confirm Brand Understanding"):
+        st.markdown("---")
+        
+        if st.button("Confirm Brand Understanding", type="primary"):
             cache_key = f"{brand_name.strip()} | {core_offering.strip()}"
             save_profile_to_cache(cache_key, edited_profile)
             
@@ -147,7 +162,6 @@ elif st.session_state.stage == 2:
     
     if uploaded_file:
         try:
-            # Safely rewind the file pointer before previewing
             uploaded_file.seek(0)
             df_preview = pd.read_csv(uploaded_file)
             term_col_preview = next((c for c in df_preview.columns if "search term" in c.lower() or "query" in c.lower()), None)
@@ -171,8 +185,6 @@ elif st.session_state.stage == 2:
             st.error("Error Code: E002 - Search Term CSV ledger missing.")
         else:
             try:
-                # --- THE INSTANT REWIND FIX ---
-                # Resets stream back to position zero to fix empty-buffer errors
                 uploaded_file.seek(0)
                 
                 df_input = pd.read_csv(uploaded_file)
@@ -224,23 +236,45 @@ elif st.session_state.stage == 2:
                             st.error(f"Error Code: E004/E005 - System failure on batch chunk processing: {str(batch_err)}")
                         st.stop()
 
+                # --- 🎯 UPDATED INTELLIGENT BACKEND NOTATION INTEGRATION ---
                 irr_phrases = [r["Search Term"] for r in irrelevant_list]
                 saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list]
                 
-                raw_roots = extract_root_negatives(irr_phrases, saved_phrases)
+                # Fetch approved values from memory state to activate the brand safety shield
+                protected_list = st.session_state.locked_rules.get("protected_terms", [])
+                
+                # Extract root words using protection boundaries
+                raw_roots = extract_root_negatives(irr_phrases, saved_phrases, protected_list)
                 root_negatives_payload = [
-                    {"Root Word": word, "Blocked Volume Count": count, "Ads Notation Match": apply_ads_notation(word)}
+                    {"Root Word": word, "Blocked Volume Count": count, "Ads Notation Match": apply_ads_notation(word, is_exact=False)}
                     for word, count in raw_roots.items()
                 ]
                 
                 final_negatives_output = []
                 active_root_words = set(raw_roots.keys())
+                
+                # Append verified root words to output string parameters
                 for rn in root_negatives_payload:
                     final_negatives_output.append(rn["Ads Notation Match"])
+                    
+                # Run advanced exact match down-routing verification logic
                 for irr in irrelevant_list:
                     phrase = irr["Search Term"]
-                    if not (set(phrase.lower().split()) & active_root_words):
-                        final_negatives_output.append(apply_ads_notation(phrase))
+                    phrase_words = set(re.findall(r'\b\w+\b', phrase.lower()))
+                    
+                    protected_words = set()
+                    for p_term in protected_list:
+                        protected_words.update(re.findall(r'\b\w+\b', p_term.lower()))
+                        
+                    contains_protected = bool(phrase_words & protected_words)
+                    
+                    if contains_protected:
+                        # Safety net downgrade rule: protects broad core volume variations
+                        final_negatives_output.append(apply_ads_notation(phrase, is_exact=True))
+                    else:
+                        if not (phrase_words & active_root_words):
+                            final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
+                            
                 final_negatives_output = list(set(final_negatives_output))
                 
                 total_processed_output = len(relevant_list) + len(irrelevant_list) + len(review_list)
