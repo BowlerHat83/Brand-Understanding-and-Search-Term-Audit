@@ -135,7 +135,7 @@ if st.session_state.stage == 1:
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line)", 
             placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource",
-            height=120
+            height=100
         )
         
         if st.button("Launch Brand Understanding Audit"):
