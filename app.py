@@ -187,11 +187,33 @@ elif st.session_state.stage == 2:
             if term_col_preview:
                 raw_count = len(df_preview[term_col_preview].dropna().drop_duplicates())
                 num_batches = (raw_count + BATCH_SIZE - 1) // BATCH_SIZE
-                total_seconds = int(num_batches * 1.5)
+                
+                # --- NEW TIER-AWARE TIME CALCULATOR ---
+                st.markdown("### ⏱️ Choose Your Current API Quota Tier")
+                api_tier = st.radio(
+                    "Select API Key Type for Accurate Run Time Estimations:",
+                    options=["Free Tier Key (Google AI Studio Default)", "Pay-As-You-Go Key (Production Tier)"],
+                    horizontal=True
+                )
+                
+                if api_tier == "Free Tier Key (Google AI Studio Default)":
+                    if num_batches <= 1:
+                        total_seconds = 8
+                    else:
+                        total_seconds = 60 + (num_batches * 5)
+                else:
+                    total_seconds = max(int(num_batches * 1.5), 3)
+                
+                if total_seconds >= 60:
+                    mins = total_seconds // 60
+                    secs = total_seconds % 60
+                    time_display = f"{mins} min {secs} sec" if secs > 0 else f"{mins} min"
+                else:
+                    time_display = f"{total_seconds} seconds"
                 
                 st.warning(
                     f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} optimized API calls).\n\n"
-                    f"⏱️ **Estimated Run Time:** ~**{total_seconds} seconds** (Free Tier Compliant)."
+                    f"⏱️ **Estimated Run Time:** ~**{time_display}**"
                 )
             else:
                 st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
