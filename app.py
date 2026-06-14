@@ -17,6 +17,25 @@ from backend_stage3 import push_to_google_sheets
 # --- INITIAL APP SETUP & STATE MANAGEMENT ---
 st.set_page_config(page_title="Negative Keyword Architect", layout="wide")
 
+# Custom CSS injection to tighten data tables and eliminate excess blank vertical row space
+st.markdown("""
+    <style>
+        div[data-testid="stDataFrame"] div[role="gridcell"] {
+            padding: 4px 10px !important;
+        }
+        .metric-bold-label {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .metric-bold-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #1E88E5;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 CACHE_DIR = "brand_cache"
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
@@ -135,7 +154,7 @@ if st.session_state.stage == 1:
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line)", 
             placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource",
-            height= 80
+            height=120
         )
         
         if st.button("Launch Brand Understanding Audit"):
@@ -395,12 +414,29 @@ if st.session_state.audit_results:
     res_data = st.session_state.audit_results
     
     st.markdown("---")
-    st.subheader("📋 Audit Execution Outputs Summary")
-    st.write(pd.DataFrame([res_data["metrics"]]))
+    st.subheader("🛡️ Audit Summary Performance Data")
+    
+    # Render key summary metrics cleanly in a bold horizontal row without tables
+    met_cols = st.columns(5)
+    metrics_mapping = [
+        ("Total Inputted Terms", "Total Inputted Terms"),
+        ("Relevant Terms ✅", "Relevant Terms"),
+        ("Irrelevant Terms ❌", "Irrelevant Terms"),
+        ("Review Queue 🔍", "Review Queue Terms"),
+        ("Extracted Roots Count 🪵", "Extracted Roots Count")
+    ]
+    
+    for idx, (label, key) in enumerate(metrics_mapping):
+        with met_cols[idx]:
+            st.markdown(f'<div class="metric-bold-label">{label}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-bold-value">{res_data["metrics"][key]}</div>', unsafe_allow_html=True)
+            
+    st.markdown("<br>", unsafe_allow_html=True)
     
     with st.expander("🔍 Review Queue View & Direct Download", expanded=True):
         df_rev = pd.DataFrame(res_data["review"])
-        st.dataframe(df_rev, use_container_width=True)
+        # Display table cleanly, removing row-count index padding space
+        st.dataframe(df_rev, use_container_width=True, hide_index=True)
         if not df_rev.empty:
             st.download_button("Download Raw Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv")
             
