@@ -59,21 +59,18 @@ if st.session_state.stage == 1:
     # --- DYNAMIC CONTROLS SWITCH ---
     # Case A: User selected a cached configuration profile template
     if selected_cache != "Create New":
-        # If the active memory session state hasn't been set yet, automatically load the JSON asset straight away
         if st.session_state.brand_profile is None:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
-                # Parse temporary titles for cache saving purposes later
                 st.session_state.temp_brand_name = selected_cache.split(" | ")[0]
                 st.session_state.temp_core_offering = selected_cache.split(" | ")[1]
             except Exception as e:
-                st.error(f"Error Code: E005 - App Error. Failed loading profile asset: {str(e)}")
+                st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFailed loading profile asset framework configuration. Details: {str(e)}")
                 
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
     # Case B: User wants to manually generate a new baseline configuration from scratch
     else:
-        # Clear out previous memory parameters if switching back from an active cache profile view
         if st.session_state.get('last_selected_cache') != "Create New" and 'last_selected_cache' in st.session_state:
             st.session_state.brand_profile = None
             
@@ -87,7 +84,7 @@ if st.session_state.stage == 1:
         
         if st.button("Launch Brand Understanding Audit"):
             if not brand_name or not core_offering or not landing_page:
-                st.error("Error Code: E001 - All input fields are required to launch.")
+                st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required text input containers were left blank. Please specify Brand Name, Core Offering, and Landing Page context to clear systemic validation.")
             else:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -112,14 +109,14 @@ if st.session_state.stage == 1:
                 except Exception as e:
                     progress_bar.empty()
                     status_text.empty()
-                    if "429" in str(e).lower() or "quota" in str(e).lower():
-                        st.error("Error Code: E003 - Gemini Quota Exceeded. Please wait before retrying.")
-                    elif "gemini" in str(e).lower():
-                        st.error("Error Code: E004 - Gemini General API Error. Communication loop broken.")
+                    err_str = str(e).lower()
+                    if "429" in err_str or "quota" in err_str:
+                        st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe free-tier API speed limit was hit. Please pause for 60 seconds before clicking resume.")
+                    elif "gemini" in err_str:
+                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please check your network connection and try again.")
                     else:
-                        st.error(f"Error Code: E005 - App Error. Details: {str(e)}")
+                        st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected backend processing anomaly occurred. Details: {str(e)}")
 
-    # Tracker variable used to keep tab changes smooth
     st.session_state.last_selected_cache = selected_cache
 
     # Display data refinement matrices if data is present in memory workspace
@@ -197,13 +194,13 @@ elif st.session_state.stage == 2:
                     f"⏱️ **Estimated Run Time:** ~**{total_seconds} seconds** (Free Tier Compliant)."
                 )
             else:
-                st.error("Error Code: E005 - App Error. Missing 'Search Term' column mapping.")
+                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
         except Exception as e:
-            st.error(f"Error Code: E005 - App Error. File read failure: {str(e)}")
+            st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
     if st.button("Launch Search Terms Audit"):
         if not uploaded_file:
-            st.error("Error Code: E002 - Search Term CSV ledger missing.")
+            st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing. Please select and load a file before hitting execute.")
         else:
             try:
                 uploaded_file.seek(0)
@@ -251,10 +248,15 @@ elif st.session_state.stage == 2:
                         m4.metric("Review Queue 🔍", f"{len(review_list)}")
                         
                     except Exception as batch_err:
-                        if "429" in str(batch_err).lower() or "quota" in str(batch_err).lower():
-                            st.error("Error Code: E003 - Gemini Quota Exceeded. Free tier limit hit. Wait 60 seconds.")
+                        err_str = str(batch_err).lower()
+                        if "429" in err_str or "quota" in err_str:
+                            st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe free-tier API speed limit was hit. Please pause for 60 seconds before clicking resume.")
+                        elif "validation error" in err_str or "eof while parsing" in err_str or "json" in err_str:
+                            st.error("⚠️ **Error Code: E006 - Batching Threshold Issue**\n\nThe text data payload in this batch was too large for the AI engine to return completely. The system has automatically safe-stopped. To fix this, change **BATCH_SIZE = 25** to **BATCH_SIZE = 15** at the top of Stage 2 in your app.py file.")
+                        elif "gemini" in err_str:
+                            st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please check your network connection and try again.")
                         else:
-                            st.error(f"Error Code: E004/E005 - System failure on batch chunk processing: {str(batch_err)}")
+                            st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected processing failure occurred on batch data execution chunk. Details: {str(batch_err)}")
                         st.stop()
 
                 irr_phrases = [r["Search Term"] for r in irrelevant_list]
@@ -294,7 +296,7 @@ elif st.session_state.stage == 2:
                 
                 total_processed_output = len(relevant_list) + len(irrelevant_list) + len(review_list)
                 if total_input_count != total_processed_output:
-                    st.error(f"Error Code: E005 - Leakage detected. Inputs ({total_input_count}) != Outputs ({total_processed_output}).")
+                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nLeakage error structural check broken. Input rows ({total_input_count}) do not match matching total classifications output rows ({total_processed_output}).")
                     st.stop()
                     
                 st.session_state.audit_results = {
@@ -315,7 +317,7 @@ elif st.session_state.stage == 2:
                 st.rerun()
                 
             except Exception as main_err:
-                st.error(f"Error Code: E005 - Operational Failure: {str(main_err)}")
+                st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCore ledger computation failed on analysis layout execution: {str(main_err)}")
 
 if st.session_state.audit_results:
     res_data = st.session_state.audit_results
@@ -354,7 +356,7 @@ if st.session_state.audit_results:
                     st.success("Google Sheets Asset generated successfully!")
                     st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
                 except Exception as e:
-                    st.error(f"Error Code: E005 - App Error. Cloud push failure: {str(e)}")
+                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCloud ledger synchronization pipeline interrupted: {str(e)}")
                     
         if st.button("🔄 Start New Audit", use_container_width=True):
             st.session_state.stage = 1
