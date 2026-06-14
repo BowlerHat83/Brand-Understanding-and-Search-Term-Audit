@@ -56,61 +56,79 @@ if st.session_state.stage == 1:
     cache_options = get_cached_profiles()
     selected_cache = st.selectbox("Select a Profile Configuration Template", options=cache_options, index=0)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        brand_name = st.text_input("Brand Name", value="" if selected_cache == "Create New" else selected_cache.split(" | ")[0])
-    with col2:
-        core_offering = st.text_input("Core Offering of the Ad Group", value="" if selected_cache == "Create New" else selected_cache.split(" | ")[1])
-        
-    landing_page = st.text_input("Target Landing Page Link/Context")
-    
-    if selected_cache != "Create New" and st.button("Load Profile Baseline"):
-        try:
-            st.session_state.brand_profile = load_cached_profile(selected_cache)
-            st.info("Cached profile successfully loaded into memory workspace below.")
-        except Exception as e:
-            st.error(f"Error Code: E005 - App Error. Failed loading profile asset: {str(e)}")
-
-    if st.button("Launch Brand Understanding Audit"):
-        if not brand_name or not core_offering or not landing_page:
-            st.error("Error Code: E001 - All input fields are required to launch.")
-        else:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
+    # --- DYNAMIC CONTROLS SWITCH ---
+    # Case A: User selected a cached configuration profile template
+    if selected_cache != "Create New":
+        # If the active memory session state hasn't been set yet, automatically load the JSON asset straight away
+        if st.session_state.brand_profile is None:
             try:
-                status_text.text("Connecting to Gemini AI Engine...")
-                progress_bar.progress(25)
-                
-                raw_profile = run_brand_audit(brand_name, core_offering, landing_page)
-                progress_bar.progress(75)
-                
-                status_text.text("Structuring core framework rulesets...")
-                st.session_state.brand_profile = raw_profile
-                progress_bar.progress(100)
-                
-                status_text.empty()
-                progress_bar.empty()
-                st.rerun()
-                
+                st.session_state.brand_profile = load_cached_profile(selected_cache)
+                # Parse temporary titles for cache saving purposes later
+                st.session_state.temp_brand_name = selected_cache.split(" | ")[0]
+                st.session_state.temp_core_offering = selected_cache.split(" | ")[1]
             except Exception as e:
-                progress_bar.empty()
-                status_text.empty()
-                if "429" in str(e).lower() or "quota" in str(e).lower():
-                    st.error("Error Code: E003 - Gemini Quota Exceeded. Please wait before retrying.")
-                elif "gemini" in str(e).lower():
-                    st.error("Error Code: E004 - Gemini General API Error. Communication loop broken.")
-                else:
-                    st.error(f"Error Code: E005 - App Error. Details: {str(e)}")
+                st.error(f"Error Code: E005 - App Error. Failed loading profile asset: {str(e)}")
+                
+        st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
+        
+    # Case B: User wants to manually generate a new baseline configuration from scratch
+    else:
+        # Clear out previous memory parameters if switching back from an active cache profile view
+        if st.session_state.get('last_selected_cache') != "Create New" and 'last_selected_cache' in st.session_state:
+            st.session_state.brand_profile = None
+            
+        col1, col2 = st.columns(2)
+        with col1:
+            brand_name = st.text_input("Brand Name", value="")
+        with col2:
+            core_offering = st.text_input("Core Offering of the Ad Group", value="")
+            
+        landing_page = st.text_input("Target Landing Page Link/Context")
+        
+        if st.button("Launch Brand Understanding Audit"):
+            if not brand_name or not core_offering or not landing_page:
+                st.error("Error Code: E001 - All input fields are required to launch.")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    status_text.text("Connecting to Gemini AI Engine...")
+                    progress_bar.progress(25)
+                    
+                    raw_profile = run_brand_audit(brand_name, core_offering, landing_page)
+                    progress_bar.progress(75)
+                    
+                    status_text.text("Structuring core framework rulesets...")
+                    st.session_state.brand_profile = raw_profile
+                    st.session_state.temp_brand_name = brand_name
+                    st.session_state.temp_core_offering = core_offering
+                    progress_bar.progress(100)
+                    
+                    status_text.empty()
+                    progress_bar.empty()
+                    st.rerun()
+                    
+                except Exception as e:
+                    progress_bar.empty()
+                    status_text.empty()
+                    if "429" in str(e).lower() or "quota" in str(e).lower():
+                        st.error("Error Code: E003 - Gemini Quota Exceeded. Please wait before retrying.")
+                    elif "gemini" in str(e).lower():
+                        st.error("Error Code: E004 - Gemini General API Error. Communication loop broken.")
+                    else:
+                        st.error(f"Error Code: E005 - App Error. Details: {str(e)}")
 
+    # Tracker variable used to keep tab changes smooth
+    st.session_state.last_selected_cache = selected_cache
+
+    # Display data refinement matrices if data is present in memory workspace
     if st.session_state.brand_profile:
         st.markdown("### 📝 Refine Brand Understanding Rulesets")
         st.caption("Double-click individual cells to add custom items, clear rows, or correct terms before cementing absolute rules.")
         
         edited_profile = {}
         
-        # --- 🎨 RE-FORMATTED STAGE 1 GRID LAYOUT ---
-        # Splitting into clear horizontal structural columns to avoid crowded stacking
         row1_col1, row1_col2 = st.columns(2)
         with row1_col1:
             st.markdown("#### ✨ Allowed Brand Variants & Misspellings")
@@ -124,7 +142,7 @@ if st.session_state.stage == 1:
             ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True, key="editor_prot")
             edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
             
-        st.markdown("<br>", unsafe_text_html=True) # Structural visual separator spacer
+        st.markdown("<br>", unsafe_allow_html=True)
         
         row2_col1, row2_col2 = st.columns(2)
         with row2_col1:
@@ -142,7 +160,10 @@ if st.session_state.stage == 1:
         st.markdown("---")
         
         if st.button("Confirm Brand Understanding", type="primary"):
-            cache_key = f"{brand_name.strip()} | {core_offering.strip()}"
+            b_title = st.session_state.get("temp_brand_name", "Brand").strip()
+            c_title = st.session_state.get("temp_core_offering", "Offering").strip()
+            cache_key = f"{b_title} | {c_title}"
+            
             save_profile_to_cache(cache_key, edited_profile)
             
             st.session_state.locked_rules = edited_profile
@@ -236,14 +257,11 @@ elif st.session_state.stage == 2:
                             st.error(f"Error Code: E004/E005 - System failure on batch chunk processing: {str(batch_err)}")
                         st.stop()
 
-                # --- 🎯 UPDATED INTELLIGENT BACKEND NOTATION INTEGRATION ---
                 irr_phrases = [r["Search Term"] for r in irrelevant_list]
                 saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list]
                 
-                # Fetch approved values from memory state to activate the brand safety shield
                 protected_list = st.session_state.locked_rules.get("protected_terms", [])
                 
-                # Extract root words using protection boundaries
                 raw_roots = extract_root_negatives(irr_phrases, saved_phrases, protected_list)
                 root_negatives_payload = [
                     {"Root Word": word, "Blocked Volume Count": count, "Ads Notation Match": apply_ads_notation(word, is_exact=False)}
@@ -253,11 +271,9 @@ elif st.session_state.stage == 2:
                 final_negatives_output = []
                 active_root_words = set(raw_roots.keys())
                 
-                # Append verified root words to output string parameters
                 for rn in root_negatives_payload:
                     final_negatives_output.append(rn["Ads Notation Match"])
                     
-                # Run advanced exact match down-routing verification logic
                 for irr in irrelevant_list:
                     phrase = irr["Search Term"]
                     phrase_words = set(re.findall(r'\b\w+\b', phrase.lower()))
@@ -269,7 +285,6 @@ elif st.session_state.stage == 2:
                     contains_protected = bool(phrase_words & protected_words)
                     
                     if contains_protected:
-                        # Safety net downgrade rule: protects broad core volume variations
                         final_negatives_output.append(apply_ads_notation(phrase, is_exact=True))
                     else:
                         if not (phrase_words & active_root_words):
