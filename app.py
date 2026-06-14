@@ -82,9 +82,19 @@ if st.session_state.stage == 1:
         if st.session_state.brand_profile is None:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
-                st.session_state.temp_brand_name = selected_cache.split(" | ")[0]
-                st.session_state.temp_core_offering = selected_cache.split(" | ")[1]
-                # Also pre-lock rules when pulling an established cache file so the forward button appears
+                
+                # --- STRATIFIED CACHE PARSING WITH LEGACY PROTECTION ---
+                cache_parts = selected_cache.split(" | ")
+                if len(cache_parts) == 3:
+                    st.session_state.temp_brand_name = cache_parts[0]
+                    st.session_state.temp_campaign_type = cache_parts[1]
+                    st.session_state.temp_core_offering = cache_parts[2]
+                else:
+                    # Backward compatibility for old 2-part naming patterns
+                    st.session_state.temp_brand_name = cache_parts[0]
+                    st.session_state.temp_campaign_type = "Search"
+                    st.session_state.temp_core_offering = cache_parts[1] if len(cache_parts) > 1 else ""
+                    
                 st.session_state.locked_rules = st.session_state.brand_profile
                 st.session_state.cache_key = selected_cache
             except Exception as e:
@@ -96,13 +106,15 @@ if st.session_state.stage == 1:
         if st.session_state.get('last_selected_cache') != "Create New" and 'last_selected_cache' in st.session_state:
             st.session_state.brand_profile = None
             
-        col1, col2 = st.columns(2)
+        # --- NEW THREE-COLUMN BALANCED INPUT LAYOUT ---
+        col1, col2, col3 = st.columns(3)
         with col1:
             brand_name = st.text_input("Brand Name", value="")
         with col2:
+            campaign_type = st.selectbox("Campaign Type", options=["Search", "PMax", "Display", "Shopping"])
+        with col3:
             core_offering = st.text_input("Core Offering of the Ad Group", value="")
             
-        # --- MULTI-LANDING PAGE CONTEXT INGESTION ---
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line, or describe funnel audience text directly)", 
             placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource\nContext: Targeting lower-funnel users who abandoned carts.",
@@ -120,13 +132,14 @@ if st.session_state.stage == 1:
                     status_text.text("Connecting to Gemini AI Engine...")
                     progress_bar.progress(25)
                     
-                    # Passes the aggregated multi-line context block seamlessly into the backend analysis loop
+                    # Campaign type behaves as a label metadata tag; it is excluded from the core AI parameters text dump
                     raw_profile = run_brand_audit(brand_name, core_offering, landing_pages)
                     progress_bar.progress(75)
                     
                     status_text.text("Structuring core framework rulesets...")
                     st.session_state.brand_profile = raw_profile
                     st.session_state.temp_brand_name = brand_name
+                    st.session_state.temp_campaign_type = campaign_type
                     st.session_state.temp_core_offering = core_offering
                     progress_bar.progress(100)
                     
@@ -185,8 +198,11 @@ if st.session_state.stage == 1:
         
         if st.button("Confirm Brand Understanding", type="primary"):
             b_title = st.session_state.get("temp_brand_name", "Brand").strip()
+            t_title = st.session_state.get("temp_campaign_type", "Search").strip()
             c_title = st.session_state.get("temp_core_offering", "Offering").strip()
-            cache_key = f"{b_title} | {c_title}"
+            
+            # --- INCORPORATING CAMPAIGN TYPE INTO CACHE STRUCTURAL STRING ---
+            cache_key = f"{b_title} | {t_title} | {c_title}"
             
             save_profile_to_cache(cache_key, edited_profile)
             
