@@ -126,13 +126,13 @@ if st.session_state.stage == 1:
         with col1:
             brand_name = st.text_input("Brand Name", value="")
         with col2:
-            campaign_type = st.selectbox("Campaign Type", options=["Search", "PMax", "Display", "Shopping"])
+            campaign_type = st.selectbox("Campaign Type", options=["-Please Select-", "Search", "PMax", "Display", "Shopping"])
         with col3:
             core_offering = st.text_input("Core Offering of the Ad Group", value="")
             
         landing_pages = st.text_area(
-            "Target Landing Page Links & Context (One link per line, or describe funnel audience text directly)", 
-            placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource\nContext: Targeting lower-funnel users who abandoned carts.",
+            "Target Landing Page Links & Context (One link per line)", 
+            placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource\",
             height=120
         )
         
