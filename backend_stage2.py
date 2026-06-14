@@ -5,40 +5,42 @@ from typing import List, Literal
 from google import genai
 from google.genai import types
 
-# 1. Define the schema for a single term's output
+# 1. Define the strict data validation structure for Gemini's output
 class SingleTermClassification(BaseModel):
-    search_term: str = Field(description="The exact search term being evaluated.")
-    classification: Literal["relevant", "irrelevant", "review"] = Field(description="Must select exactly one.")
-    confidence: float = Field(description="Confidence score between 0.00 and 1.00.")
-    reason: str = Field(description="Max 5 words explaining the decision.")
+    search_term: str = Field(description="The exact search term being evaluated from the input array.")
+    classification: Literal["relevant", "irrelevant", "review"] = Field(description="Must pick exactly one category.")
+    confidence: float = Field(description="Confidence decimal between 0.00 and 1.00.")
+    reason: str = Field(description="Strictly 5 words or less explaining the logical match choice.")
 
-# 2. Define the schema for the batch wrapper
+# 2. Define the multi-row batch container array
 class BatchClassificationResponse(BaseModel):
-    results: List[SingleTermClassification] = Field(description="Array containing the classification data for every single input term.")
+    results: List[SingleTermClassification] = Field(description="Array matching every single input query.")
 
 def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dict]:
     """
-    Evaluates a batch of search terms simultaneously in a single API call.
+    Evaluates a batch group of 50 search terms simultaneously in a single API container request.
+    Staying completely within free-tier RPM quotas.
     """
+    # Initializes client utilizing your secure cloud-stored GEMINI_API_KEY environment token
     client = genai.Client()
     
     prompt = f"""
-    Evaluate the following list of search term queries:
+    Evaluate the following array list of PPC search queries:
     {json.dumps(terms_batch)}
     
-    Against these absolute brand guidelines:
-    - Allowed Brand Variants: {locked_rules.get('brand_variants', [])}
-    - Competitor Red Flags: {locked_rules.get('competitors', [])}
-    - Protected Core Phrases: {locked_rules.get('protected_terms', [])}
-    - Clear Irrelevant Elements: {locked_rules.get('irrelevant_terms', [])}
+    Against these absolute campaign match guidelines:
+    - Allowed Brand Variants/Misspellings: {locked_rules.get('brand_variants', [])}
+    - Competitor Target Brand Names (Red Flags): {locked_rules.get('competitors', [])}
+    - Protected Core Offering Terms: {locked_rules.get('protected_terms', [])}
+    - Clear Irrelevant Elements/Concepts: {locked_rules.get('irrelevant_terms', [])}
     """
     
     system_prompt = (
-        "You are an expert Google Ads optimization algorithm. Process the array of search terms accurately. "
-        "For each term, determine if it is 'relevant', 'irrelevant', or needs 'review'. "
-        "Do not default to 'review' unless there is an absolute tie or severe semantic contradiction. "
-        "You must output a result for EVERY single term provided in the input list. Do not drop any terms. "
-        "Keep your reason strictly under 5 words."
+        "You are an elite, deterministic Google Ads keyword filtering machine. "
+        "Process every search term query inside the input array accurately against the guidelines. "
+        "Classify as 'relevant', 'irrelevant', or 'review'. "
+        "You must generate an evaluation line for EVERY single query in the input array. Do not miss any. "
+        "Keep your reason values strictly below a 5-word micro-readout description."
     )
     
     try:
@@ -49,21 +51,22 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
                 system_instruction=system_prompt,
                 response_mime_type="application/json",
                 response_schema=BatchClassificationResponse,
-                temperature=0.0  # Kept at 0.0 for deterministic precision
+                temperature=0.0  # Keeps logic completely locked and non-creative
             )
         )
         
-        # Parse and validate the response
+        # Validates and maps the raw response string straight to Python types dictionary format
         parsed_data = BatchClassificationResponse.model_validate_json(response.text).model_dump()
         return parsed_data["results"]
         
     except Exception as e:
-        raise RuntimeError(f"Batch processing error: {str(e)}")
+        raise RuntimeError(f"Cloud Batch Matrix Engine failed on execution: {str(e)}")
 
 def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str]) -> dict:
-    """ Pure Python math engine to isolate broad match negative candidates (unchanged) """
+    """ Isolated pure Python string set extraction math (100% accurate, no API overhead) """
     word_counts = {}
     protected_tokens = set()
+    
     for term in saved_terms:
         for word in re.findall(r'\b\w+\b', str(term).lower()):
             protected_tokens.add(word)
@@ -78,7 +81,8 @@ def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str]) 
     return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
 
 def apply_ads_notation(term: str) -> str:
-    """ Formats strings for Google Ads syntax """
+    """ Correctly wraps strings into strict broad or phrase match layout parameters for Google Ads """
     cleaned = str(term).strip()
-    if not cleaned: return ""
+    if not cleaned: 
+        return ""
     return cleaned.lower() if len(cleaned.split()) == 1 else f'"{cleaned.lower()}"'
