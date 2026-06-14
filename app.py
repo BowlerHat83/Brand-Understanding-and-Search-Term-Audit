@@ -46,7 +46,6 @@ if "audit_results" not in st.session_state:
 # ==========================================
 # 🗺️ PERSISTENT NAVIGATION HUB
 # ==========================================
-
 st.title("🛡️ Google Ads Negative Keyword Architect")
 st.write("Streamlining Search Term Reports (STR) with Human-in-the-Loop Validation.")
 
@@ -57,7 +56,22 @@ with nav_cols[0]:
     # Only show "Back to Stage 1" if we are actually past Stage 1
     if st.session_state.stage > 1:
         if st.button("⬅️ Back to Stage 1", use_container_width=True):
+            # --- CLEAN SLATE FLUSH LOGIC ---
             st.session_state.stage = 1
+            st.session_state.brand_profile = None
+            st.session_state.locked_rules = None
+            st.session_state.audit_results = None
+            
+            # Flush out temporary metadata tracking variables
+            if "temp_brand_name" in st.session_state:
+                del st.session_state.temp_brand_name
+            if "temp_campaign_type" in st.session_state:
+                del st.session_state.temp_campaign_type
+            if "temp_core_offering" in st.session_state:
+                del st.session_state.temp_core_offering
+            if "cache_key" in st.session_state:
+                del st.session_state.cache_key
+                
             st.rerun()
 
 with nav_cols[2]:
