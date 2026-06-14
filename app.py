@@ -449,6 +449,7 @@ if st.session_state.audit_results:
         
     with col_out2:
         st.subheader("⚙️ Workspace Controls")
+        st.caption("Need to Sanity Check the Outputs? Download the below Workbook Ledger.")
         if st.button("🚀 Download Workbook Ledger", use_container_width=True):
             payload = {
                 "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
