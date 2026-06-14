@@ -43,8 +43,29 @@ if "locked_rules" not in st.session_state:
 if "audit_results" not in st.session_state:
     st.session_state.audit_results = None
 
+# ==========================================
+# 🗺️ NEW FEATURE: PERSISTENT NAVIGATION HUB
+# ==========================================
 st.title("🛡️ Google Ads Negative Keyword Architect")
 st.write("Streamlining Search Term Reports (STR) with Human-in-the-Loop Validation.")
+
+# Visual step-by-step indicator bar
+nav_cols = st.columns([1, 4, 1])
+
+with nav_cols[0]:
+    # Only show "Back to Stage 1" if we are actually past Stage 1
+    if st.session_state.stage > 1:
+        if st.button("⬅️ Back to Stage 1", use_container_width=True):
+            st.session_state.stage = 1
+            st.rerun()
+
+with nav_cols[2]:
+    # Only show "Forward to Stage 2" if we have already built/locked a blueprint rule setup
+    if st.session_state.stage == 1 and st.session_state.locked_rules is not None:
+        if st.button("Forward to Stage 2 ➡️", use_container_width=True):
+            st.session_state.stage = 2
+            st.rerun()
+
 st.markdown("---")
 
 # ==========================================
@@ -63,6 +84,9 @@ if st.session_state.stage == 1:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
                 st.session_state.temp_brand_name = selected_cache.split(" | ")[0]
                 st.session_state.temp_core_offering = selected_cache.split(" | ")[1]
+                # Also pre-lock rules when pulling an established cache file so the forward button appears
+                st.session_state.locked_rules = st.session_state.brand_profile
+                st.session_state.cache_key = selected_cache
             except Exception as e:
                 st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFailed loading profile asset framework configuration. Details: {str(e)}")
                 
@@ -186,14 +210,12 @@ elif st.session_state.stage == 2:
                 num_batches = (raw_count + BATCH_SIZE - 1) // BATCH_SIZE
                 
                 # --- BACKEND CALCULATION: BOTH TIERS ---
-                # 1. Paid Tier Estimate
                 paid_seconds = max(int(num_batches * 1.5), 3)
                 if paid_seconds >= 60:
                     paid_display = f"{paid_seconds // 60} min {paid_seconds % 60} sec" if paid_seconds % 60 > 0 else f"{paid_seconds // 60} min"
                 else:
                     paid_display = f"{paid_seconds} seconds"
                 
-                # 2. Free Tier Estimate (Accounting for 60s rate limits)
                 free_seconds = 8 if num_batches <= 1 else 60 + (num_batches * 5)
                 if free_seconds >= 60:
                     free_display = f"{free_seconds // 60} min {free_seconds % 60} sec" if free_seconds % 60 > 0 else f"{free_seconds // 60} min"
