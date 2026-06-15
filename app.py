@@ -543,3 +543,10 @@ if st.session_state.audit_results:
             st.session_state.locked_rules = None
             st.session_state.audit_results = None
             st.rerun()
+
+# --- TEMPORARY ONE-TIME PURGE SCRIPT ---
+# TODO: Delete these lines after the bad profile is gone!
+target_to_delete = "EXACT_NAME_OF_THE_BAD_PROFILE" 
+bad_file_path = os.path.join(CACHE_DIR, f"{target_to_delete}.json")
+if os.path.exists(bad_file_path):
+    os.remove(bad_file_path)
