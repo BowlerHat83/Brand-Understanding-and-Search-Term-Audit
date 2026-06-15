@@ -299,6 +299,8 @@ elif st.session_state.stage == 2:
                     overlooked_list = []
                     processed_terms_set = set()
                     
+                    hit_processing_failure = False
+                    
                     for i in range(0, total_input_count, BATCH_SIZE):
                         batch = search_terms[i:i + BATCH_SIZE]
                         counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
@@ -323,7 +325,8 @@ elif st.session_state.stage == 2:
                                     review_list.append(row_data)
                                     
                         except Exception as batch_err:
-                            # 🛡️ Risk Mitigation Isolation: Route keywords to 'Potentially Overlooked' ONLY to prevent execution crashes
+                            # 🛡️ Cost Optimization Guard: Route broken keywords to Overlooked and flag an immediate loop pause
+                            hit_processing_failure = True
                             for term in batch:
                                 if term not in processed_terms_set:
                                     overlooked_list.append({
@@ -341,14 +344,18 @@ elif st.session_state.stage == 2:
                         m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
                         m4.metric("Review Queue 🔍", f"{len(review_list)}")
                         m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
+                        
+                        # 🛑 Hit pause immediately to prevent wasted downstream API credit bills
+                        if hit_processing_failure:
+                            break
 
-                    # Final verification check: Isolate unparsed matrix data into Potentially Overlooked
+                    # Final verification check: Catch remaining unparsed data into Potentially Overlooked if paused early
                     for term in search_terms:
                         if term not in processed_terms_set:
                             overlooked_list.append({
                                 "Search Term": term, 
                                 "Confidence Score": 0.00, 
-                                "Reasoning": "System reconciliation safety framework catch"
+                                "Reasoning": "System reconciliation safety framework catch (Process Paused)"
                             })
 
                     irr_phrases = [r["Search Term"] for r in irrelevant_list]
@@ -414,12 +421,11 @@ if st.session_state.audit_results:
     st.markdown("---")
     st.subheader("🛡️ Audit Summary Performance Data")
     
-    # 🚨 CRITICAL ERROR PROTECTION BLOCK: Warn user if any terms fell back into Overlooked
+    # 🚨 UPDATED ERROR PROTECTION BLOCK: Warn user and prompt a 10-minute timeout rest period
     if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
         st.error(
-            f"⚠️ **Classification Incomplete:** The engine was unsuccessful in classifying "
-            f"{res_data['metrics']['Potentially Overlooked Terms']} term(s) due to system processing risks. "
-            f"Please check your parameters and try running the audit again."
+            f"⚠️ **Classification Incomplete:** The engine was unsuccessful in classifying terms due to system processing risks. "
+            f"The runthrough process has been paused to save API costs. Please check your parameters and try again in 10 mins."
         )
     
     met_cols = st.columns(6)
@@ -439,7 +445,6 @@ if st.session_state.audit_results:
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Render layout view adjustments split into distinct structural sub-blocks
     col_views = st.columns(2)
     with col_views[0]:
         with st.expander("🔍 Standard Review Queue View", expanded=True):
