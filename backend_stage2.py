@@ -1,5 +1,6 @@
 import re
 import json
+import time  # 🚀 Added for the backoff pause mechanism
 import collections
 import streamlit as st
 from pydantic import BaseModel, Field
@@ -20,10 +21,9 @@ class BatchClassificationResponse(BaseModel):
 
 def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dict]:
     """
-    Evaluates a batch group of search terms simultaneously in a single API container request.
-    Staying completely within free-tier/paid-tier quotas seamlessly.
+    Evaluates a batch group of search terms with built-in resilience.
+    Uses exponential backoff to handle 503 errors gracefully without crashing.
     """
-    # Securely retrieve the upgraded token directly from Streamlit secrets
     api_key = st.secrets.get("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
     
@@ -46,29 +46,44 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
         "Keep your reason values strictly below a 5-word micro-readout description."
     )
     
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type="application/json",
-                response_schema=BatchClassificationResponse,
-                temperature=0.0  # Keeps logic completely locked and non-creative
+    # 🎯 START RESILIENT RETRY CONFIGURATION
+    max_retries = 4
+    initial_delay = 2.0  # Seconds to wait before the first retry
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    response_mime_type="application/json",
+                    response_schema=BatchClassificationResponse,
+                    temperature=0.0
+                )
             )
-        )
-        
-        # Strip potential markdown blocks (```json ... ```) to protect Pydantic validation
-        clean_text = response.text.strip()
-        if clean_text.startswith("```"):
-            clean_text = re.sub(r"^```json\s*|\s*```$", "", clean_text, flags=re.MULTILINE).strip()
             
-        # Validates and maps the raw response string straight to Python types dictionary format
-        parsed_data = BatchClassificationResponse.model_validate_json(clean_text).model_dump()
-        return parsed_data["results"]
-        
-    except Exception as e:
-        raise RuntimeError(f"Cloud Batch Matrix Engine failed on execution: {str(e)}")
+            # Strip potential markdown blocks
+            clean_text = response.text.strip()
+            if clean_text.startswith("```"):
+                clean_text = re.sub(r"^```json\s*|\s*```$", "", clean_text, flags=re.MULTILINE).strip()
+                
+            parsed_data = BatchClassificationResponse.model_validate_json(clean_text).model_dump()
+            return parsed_data["results"]
+            
+        except Exception as e:
+            err_str = str(e).lower()
+            # If it's a server capacity or throttling issue, wait and retry
+            if "503" in err_str or "unavailable" in err_str or "429" in err_str:
+                if attempt < max_retries - 1:
+                    # Double the delay each time (e.g., wait 2s, then 4s, then 8s)
+                    sleep_time = initial_delay * (2 ** attempt)
+                    time.sleep(sleep_time)
+                    continue  # Jump to the next loop iteration to retry
+            
+            # If it's a different error or we've run out of retries, throw the error to the UI
+            raise RuntimeError(f"Cloud Batch Matrix Engine failed on execution: {str(e)}")
+
 
 def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], protected_terms: List[str] = None) -> dict:
     """ 
@@ -78,28 +93,24 @@ def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], 
     word_counts = {}
     protected_tokens = set()
     
-    # 1. Base safety shield: never extract tokens appearing in approved relevant or review words
     for term in saved_terms:
         for word in re.findall(r'\b\w+\b', str(term).lower()):
             protected_tokens.add(word)
             
-    # 2. Stage 1 safety shield extension: explicitly protect core brand phrases/sub-words
     if protected_terms:
         for term in protected_terms:
             for word in re.findall(r'\b\w+\b', str(term).lower()):
                 protected_tokens.add(word)
                 
-    # 3. Tally word instances across unique irrelevant phrases
     for term in irrelevant_terms:
         words_in_phrase = set(re.findall(r'\b\w+\b', str(term).lower()))
         for word in words_in_phrase:
             if word not in protected_tokens and not word.isdigit() and len(word) > 2:
                 word_counts[word] = word_counts.get(word, 0) + 1
                 
-    # Drop singletons. Must hit multiple (2 or more) terms to become a root.
     root_negatives = {word: count for word, count in word_counts.items() if count >= 2}
-    
     return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
+
 
 def apply_ads_notation(term: str, is_exact: bool = False) -> str:
     """ 
