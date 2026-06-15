@@ -109,6 +109,8 @@ with nav_cols[2]:
 
 st.markdown("---")
 
+st.write(f"Key exists in secrets: {'GEMINI_API_KEY' in st.secrets}")
+
 # ==========================================
 # 🔥 STAGE 1: BRAND UNDERSTANDING AUDIT
 # ==========================================
