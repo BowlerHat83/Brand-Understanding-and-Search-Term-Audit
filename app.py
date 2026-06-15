@@ -54,6 +54,10 @@ def save_profile_to_cache(name, data):
         json.dump(data, f)
 
 def is_foreign_script(text):
+    """
+    Detects if a string contains non-Latin/non-Western characters.
+    Allows standard English characters, numbers, spaces, and common punctuation.
+    """
     if re.search(r'[^\x00-\x7F\u00C0-\u017F\s\d.,&\'"\-_+/()!]', text):
         return True
     return False
@@ -78,6 +82,7 @@ st.write("Google Ads Classification System built on an expanding Brand Knowledge
 nav_cols = st.columns([1, 4, 1])
 
 with nav_cols[0]:
+    # Disable back button navigation while processing to maintain state integrity
     if st.session_state.stage > 1:
         if st.button("⬅️ Back to Stage 1", use_container_width=True, disabled=st.session_state.audit_running):
             st.session_state.stage = 1
@@ -104,25 +109,7 @@ with nav_cols[2]:
 
 st.markdown("---")
 
-# --- INITIAL SYSTEM KEY STATE TRACKING ---
 st.write(f"Key exists in secrets: {'GEMINI_API_KEY' in st.secrets}")
-
-# --- INSERTED DIAGNOSTIC BYPASS HANDSHAKE TEST LOOP ---
-with st.expander("📡 Paid API Key Handshake Sandbox Diagnostic", expanded=True):
-    st.info("Test your paid API Key credentials without triggering backend files or processing URLs.")
-    if st.button("⚡ Test Direct Google Handshake Connection", use_container_width=True):
-        try:
-            import google.generativeai as genai
-            target_key = st.secrets["GEMINI_API_KEY"]
-            genai.configure(api_key=target_key)
-            # Utilizing universal model configuration tier
-            test_model = genai.GenerativeModel('gemini-1.5-flash')
-            test_response = test_model.generate_content("Ping testing operational routing framework. Reply with: 'Handshake Active'")
-            st.success(f"🎉 API Core Connected! Verification message received: **{test_response.text.strip()}**")
-        except Exception as diagnostic_err:
-            st.error(f"❌ Handshake Broken: {str(diagnostic_err)}")
-
-st.markdown("---")
 
 # ==========================================
 # 🔥 STAGE 1: BRAND UNDERSTANDING AUDIT
@@ -205,7 +192,7 @@ if st.session_state.stage == 1:
                     if "429" in err_str or "quota" in err_str:
                         st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe API speed limit was hit. Please pause for 60 seconds.")
                     elif "gemini" in err_str:
-                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\The connection to the Google Cloud AI loop was dropped mid-process.")
+                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process.")
                     else:
                         st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected backend processing anomaly occurred. Details: {str(e)}")
 
@@ -217,6 +204,7 @@ if st.session_state.stage == 1:
         
         edited_profile = {}
         
+        # Row 1: Brand & Protected Core
         row1_col1, row1_col2 = st.columns(2)
         with row1_col1:
             st.markdown("#### ✨ Allowed Brand Variants & Misspellings")
@@ -232,6 +220,7 @@ if st.session_state.stage == 1:
             
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # Row 2: Competitors & Irrelevant Concepts
         row2_col1, row2_col2 = st.columns(2)
         with row2_col1:
             st.markdown("#### 🚨 Competitor Target Brand Names (Red Flags)")
@@ -246,6 +235,7 @@ if st.session_state.stage == 1:
             
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # 🌐 Row 3: 5th Box - Allowed Languages Matrix
         st.markdown("#### 🌐 Allowed Target Languages & Regions")
         default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
         df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
@@ -274,6 +264,7 @@ if st.session_state.stage == 1:
 elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     
+    # Block file adjustments while calculations are actively happening
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"], disabled=st.session_state.audit_running)
     
     BATCH_SIZE = 250
@@ -299,10 +290,11 @@ elif st.session_state.stage == 2:
                     f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
-                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\Missing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
+                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
+    # Dynamic button context changes text and locks immediately when running switches to True
     button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
     
     if st.button(button_text, type="primary", use_container_width=True, disabled=st.session_state.audit_running):
@@ -312,6 +304,7 @@ elif st.session_state.stage == 2:
             st.session_state.audit_running = True
             st.rerun()
 
+    # Split processing runtime zone
     if st.session_state.audit_running:
         with st.spinner("⏳ Running Search Terms Audit Engine... Please do not close or refresh this tab."):
             try:
@@ -460,11 +453,13 @@ elif st.session_state.stage == 2:
                     "roots": root_negatives_payload,
                     "copy_paste_list": final_negatives_output
                 }
+                # Unlatch UI runtime lock configuration variables
                 st.session_state.audit_running = False
                 st.success("Analysis matrix generated.")
                 st.rerun()
                 
             except Exception as main_err:
+                # Release execution lock parameters on backend failures to prevent locked UI
                 st.session_state.audit_running = False
                 st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCore ledger computation failed on analysis layout execution: {str(main_err)}")
 
