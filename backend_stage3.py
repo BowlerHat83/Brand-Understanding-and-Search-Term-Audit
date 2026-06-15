@@ -20,7 +20,6 @@ def push_to_google_sheets(cache_key: str, data_payload: dict) -> str:
         client = gspread.authorize(creds)
         
         # --- 🎯 THE BULLETPROOF MASTER TEMPLATE BYPASS ---
-        # Paste your manually created Google Sheet ID right here:
         MASTER_SPREADSHEET_ID = "1om-Du-zmqd3dy-KtUxiMVWAYLhVVGqZha9bpuI0ZRNs"
         
         # Open the shared office asset directly
@@ -47,7 +46,8 @@ def push_to_google_sheets(cache_key: str, data_payload: dict) -> str:
             if not df.empty:
                 df = df.fillna("")
                 sheet_data = [df.columns.values.tolist()] + df.values.tolist()
-                worksheet.update(sheet_data)
+                # Fix: explicit keyword parameters assigned to comply with modern gspread formatting
+                worksheet.update(range_name="A1", values=sheet_data)
                 
         return spreadsheet.url
         
