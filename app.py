@@ -546,7 +546,7 @@ if st.session_state.audit_results:
 
 # --- TEMPORARY ONE-TIME PURGE SCRIPT ---
 # TODO: Delete these lines after the bad profile is gone!
-target_to_delete = "EXACT_NAME_OF_THE_BAD_PROFILE" 
+target_to_delete = "Baleares | Search | Sant Agusti - ENG Competitors" 
 bad_file_path = os.path.join(CACHE_DIR, f"{target_to_delete}.json")
 if os.path.exists(bad_file_path):
     os.remove(bad_file_path)
