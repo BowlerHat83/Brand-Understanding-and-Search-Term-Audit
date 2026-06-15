@@ -53,6 +53,15 @@ def save_profile_to_cache(name, data):
     with open(os.path.join(CACHE_DIR, f"{safe_name}.json"), "w") as f:
         json.dump(data, f)
 
+def is_foreign_script(text):
+    """
+    Detects if a string contains non-Latin/non-Western characters.
+    Allows standard English characters, numbers, spaces, and common punctuation.
+    """
+    if re.search(r'[^\x00-\x7F\u00C0-\u017F\s\d.,&\'"\-_+/()!]', text):
+        return True
+    return False
+
 if "stage" not in st.session_state:
     st.session_state.stage = 1
 if "brand_profile" not in st.session_state:
@@ -190,6 +199,7 @@ if st.session_state.stage == 1:
         
         edited_profile = {}
         
+        # Row 1: Brand & Protected Core
         row1_col1, row1_col2 = st.columns(2)
         with row1_col1:
             st.markdown("#### ✨ Allowed Brand Variants & Misspellings")
@@ -205,6 +215,7 @@ if st.session_state.stage == 1:
             
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # Row 2: Competitors & Irrelevant Concepts
         row2_col1, row2_col2 = st.columns(2)
         with row2_col1:
             st.markdown("#### 🚨 Competitor Target Brand Names (Red Flags)")
@@ -216,6 +227,16 @@ if st.session_state.stage == 1:
             df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
             ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True, key="editor_irr")
             edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # 🌐 Row 3: 5th Box - Allowed Languages Matrix
+        st.markdown("#### 🌐 Allowed Target Languages & Regions")
+        st.caption("Specify targeting languages (e.g., 'English', 'Spanish', 'French'). Terms outside these markets or containing unsupported foreign syntax can be isolated downstream.")
+        default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
+        df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
+        ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
+        edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
             
         st.markdown("---")
         
@@ -305,36 +326,48 @@ elif st.session_state.stage == 2:
                         batch = search_terms[i:i + BATCH_SIZE]
                         counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
                         
-                        try:
-                            batch_results = classify_terms_batch(batch, st.session_state.locked_rules)
-                            
-                            for res in batch_results:
-                                term_string = res["search_term"]
-                                processed_terms_set.add(term_string)
+                        api_payload_batch = []
+                        for term in batch:
+                            if is_foreign_script(term):
+                                irrelevant_list.append({
+                                    "Search Term": term,
+                                    "Confidence Score": 1.00,
+                                    "Reasoning": "Automated Guardrail: Detected foreign non-Latin alphabet character."
+                                })
+                                processed_terms_set.add(term)
+                            else:
+                                api_payload_batch.append(term)
+
+                        if api_payload_batch:
+                            try:
+                                batch_results = classify_terms_batch(api_payload_batch, st.session_state.locked_rules)
                                 
-                                row_data = {
-                                    "Search Term": term_string,
-                                    "Confidence Score": res["confidence"],
-                                    "Reasoning": res["reason"]
-                                }
-                                if res["classification"] == "relevant":
-                                    relevant_list.append(row_data)
-                                elif res["classification"] == "irrelevant":
-                                    irrelevant_list.append(row_data)
-                                else:
-                                    review_list.append(row_data)
+                                for res in batch_results:
+                                    term_string = res["search_term"]
+                                    processed_terms_set.add(term_string)
                                     
-                        except Exception as batch_err:
-                            # 🛡️ Cost Optimization Guard: Route broken keywords to Overlooked and flag an immediate loop pause
-                            hit_processing_failure = True
-                            for term in batch:
-                                if term not in processed_terms_set:
-                                    overlooked_list.append({
-                                        "Search Term": term, 
-                                        "Confidence Score": 0.00, 
-                                        "Reasoning": f"Bypass validation fallback loop segment: {str(batch_err)}"
-                                    })
-                                    processed_terms_set.add(term)
+                                    row_data = {
+                                        "Search Term": term_string,
+                                        "Confidence Score": res["confidence"],
+                                        "Reasoning": res["reason"]
+                                    }
+                                    if res["classification"] == "relevant":
+                                        relevant_list.append(row_data)
+                                    elif res["classification"] == "irrelevant":
+                                        irrelevant_list.append(row_data)
+                                    else:
+                                        review_list.append(row_data)
+                                        
+                            except Exception as batch_err:
+                                hit_processing_failure = True
+                                for term in api_payload_batch:
+                                    if term not in processed_terms_set:
+                                        overlooked_list.append({
+                                            "Search Term": term, 
+                                            "Confidence Score": 0.00, 
+                                            "Reasoning": f"Bypass validation fallback loop segment: {str(batch_err)}"
+                                        })
+                                        processed_terms_set.add(term)
                         
                         percent_complete = int((min(i + BATCH_SIZE, total_input_count) / total_input_count) * 100)
                         progress_bar.progress(percent_complete)
@@ -345,11 +378,9 @@ elif st.session_state.stage == 2:
                         m4.metric("Review Queue 🔍", f"{len(review_list)}")
                         m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
                         
-                        # 🛑 Hit pause immediately to prevent wasted downstream API credit bills
                         if hit_processing_failure:
                             break
 
-                    # Final verification check: Catch remaining unparsed data into Potentially Overlooked if paused early
                     for term in search_terms:
                         if term not in processed_terms_set:
                             overlooked_list.append({
@@ -421,7 +452,6 @@ if st.session_state.audit_results:
     st.markdown("---")
     st.subheader("🛡️ Audit Summary Performance Data")
     
-    # 🚨 UPDATED ERROR PROTECTION BLOCK: Warn user and prompt a 10-minute timeout rest period
     if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
         st.error(
             f"⚠️ **Classification Incomplete:** The engine was unsuccessful in classifying terms due to system processing risks. "
