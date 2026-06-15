@@ -66,7 +66,7 @@ if "audit_results" not in st.session_state:
 # 🗺️ PERSISTENT NAVIGATION HUB
 # ==========================================
 st.title("🛡️ Google Ads Negative Keyworder")
-st.write("Google Ads Classification System build on Brand Understanding. A multi-stage tool to streamline PPC maintenance.")
+st.write("Google Ads Classification System built on an expanding Brand Knowledge Base.")
 
 nav_cols = st.columns([1, 4, 1])
 
@@ -142,7 +142,7 @@ if st.session_state.stage == 1:
             
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line)", 
-            placeholder="[https://client.com/pricing](https://client.com/pricing)\n[https://client.com/remarketing-resource](https://client.com/remarketing-resource)",
+            placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource",
             height=120
         )
         
@@ -211,7 +211,6 @@ if st.session_state.stage == 1:
             df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
             ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True, key="editor_comp")
             edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
-            
         with row2_col2:
             st.markdown("#### ❌ Clear Irrelevant Elements & Concepts")
             df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
@@ -220,7 +219,7 @@ if st.session_state.stage == 1:
             
         st.markdown("---")
         
-        if st.button("Confirm Brand Understanding", type="primary"):
+        if st.button("Confirm and Update Brand Knowledge Base", type="primary"):
             b_title = st.session_state.get("temp_brand_name", "Brand").strip()
             t_title = st.session_state.get("temp_campaign_type", "Search").strip()
             c_title = st.session_state.get("temp_core_offering", "Offering").strip()
@@ -231,7 +230,7 @@ if st.session_state.stage == 1:
             st.session_state.locked_rules = edited_profile
             st.session_state.cache_key = cache_key
             st.session_state.stage = 2
-            st.success("Absolute truth established and cached. Transitioning to Stage 2...")
+            st.success("Absolute truth established and updated in cache database. Moving to Stage 2...")
             st.rerun()
 
 # ==========================================
@@ -242,7 +241,7 @@ elif st.session_state.stage == 2:
     
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
     
-    BATCH_SIZE = 50
+    BATCH_SIZE = 250
     
     if uploaded_file:
         try:
@@ -254,15 +253,15 @@ elif st.session_state.stage == 2:
                 raw_count = len(df_preview[term_col_preview].dropna().drop_duplicates())
                 num_batches = (raw_count + BATCH_SIZE - 1) // BATCH_SIZE
                 
-                paid_seconds = max(int(num_batches * 2.0), 3)
+                paid_seconds = max(int(num_batches * 1.5), 2)
                 if paid_seconds >= 60:
                     paid_display = f"{paid_seconds // 60} min {paid_seconds % 60} sec" if paid_seconds % 60 > 0 else f"{paid_seconds // 60} min"
                 else:
                     paid_display = f"{paid_seconds} seconds"
                 
                 st.warning(
-                    f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} optimized linear API calls).\n\n"
-                    f"⏱️ **Paid Tier Speed Matrix:** Estimated completion in **{paid_display}**."
+                    f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} loops of {BATCH_SIZE} rows).\n\n"
+                    f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
                 st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
@@ -284,23 +283,35 @@ elif st.session_state.stage == 2:
                     
                     progress_bar = st.progress(0)
                     counter_text = st.empty()
-                    metric_slots = st.columns(4)
-                    m1, m2, m3, m4 = metric_slots[0].empty(), metric_slots[1].empty(), metric_slots[2].empty(), metric_slots[3].empty()
+                    
+                    metric_slots = st.columns(5)
+                    m1, m2, m3, m4, m5 = (
+                        metric_slots[0].empty(), 
+                        metric_slots[1].empty(), 
+                        metric_slots[2].empty(), 
+                        metric_slots[3].empty(),
+                        metric_slots[4].empty()
+                    )
                     
                     relevant_list = []
                     irrelevant_list = []
                     review_list = []
+                    overlooked_list = []
+                    processed_terms_set = set()
                     
                     for i in range(0, total_input_count, BATCH_SIZE):
                         batch = search_terms[i:i + BATCH_SIZE]
-                        counter_text.text(f"Processing Batch: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
+                        counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
                         
                         try:
                             batch_results = classify_terms_batch(batch, st.session_state.locked_rules)
                             
                             for res in batch_results:
+                                term_string = res["search_term"]
+                                processed_terms_set.add(term_string)
+                                
                                 row_data = {
-                                    "Search Term": res["search_term"],
+                                    "Search Term": term_string,
                                     "Confidence Score": res["confidence"],
                                     "Reasoning": res["reason"]
                                 }
@@ -311,30 +322,37 @@ elif st.session_state.stage == 2:
                                 else:
                                     review_list.append(row_data)
                                     
-                            percent_complete = int((min(i + BATCH_SIZE, total_input_count) / total_input_count) * 100)
-                            progress_bar.progress(percent_complete)
-                            
-                            m1.metric("Processed", f"{min(i + BATCH_SIZE, total_input_count)}")
-                            m2.metric("Relevant ✅", f"{len(relevant_list)}")
-                            m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
-                            m4.metric("Review Queue 🔍", f"{len(review_list)}")
-                            
                         except Exception as batch_err:
-                            err_str = str(batch_err).lower()
-                            if "429" in err_str or "quota" in err_str:
-                                st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe account API limits were hit.")
-                            elif "503" in err_str or "unavailable" in err_str:
-                                st.error("⚠️ **Error Code: E007 - Cloud Server High Demand**\n\nGoogle Cloud is experiencing a temporary server capacity spike. Please click 'Launch Search Terms Audit' again to retry.")
-                            elif "validation error" in err_str or "eof while parsing" in err_str or "json" in err_str:
-                                st.error("⚠️ **Error Code: E006 - Batching Threshold Issue**\n\nThe data payload in this batch was too large for structural validation. Try lowering BATCH_SIZE back to 25.")
-                            elif "gemini" in err_str:
-                                st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process.")
-                            else:
-                                st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected processing failure occurred on batch data execution chunk. Details: {str(batch_err)}")
-                            st.stop()
+                            # 🛡️ Risk Mitigation Isolation: Route keywords to 'Potentially Overlooked' ONLY to prevent execution crashes
+                            for term in batch:
+                                if term not in processed_terms_set:
+                                    overlooked_list.append({
+                                        "Search Term": term, 
+                                        "Confidence Score": 0.00, 
+                                        "Reasoning": f"Bypass validation fallback loop segment: {str(batch_err)}"
+                                    })
+                                    processed_terms_set.add(term)
+                        
+                        percent_complete = int((min(i + BATCH_SIZE, total_input_count) / total_input_count) * 100)
+                        progress_bar.progress(percent_complete)
+                        
+                        m1.metric("Processed", f"{len(processed_terms_set)}")
+                        m2.metric("Relevant ✅", f"{len(relevant_list)}")
+                        m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
+                        m4.metric("Review Queue 🔍", f"{len(review_list)}")
+                        m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
+
+                    # Final verification check: Isolate unparsed matrix data into Potentially Overlooked
+                    for term in search_terms:
+                        if term not in processed_terms_set:
+                            overlooked_list.append({
+                                "Search Term": term, 
+                                "Confidence Score": 0.00, 
+                                "Reasoning": "System reconciliation safety framework catch"
+                            })
 
                     irr_phrases = [r["Search Term"] for r in irrelevant_list]
-                    saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list]
+                    saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
                     
                     protected_list = st.session_state.locked_rules.get("protected_terms", [])
                     
@@ -361,7 +379,6 @@ elif st.session_state.stage == 2:
                         contains_protected = bool(phrase_words & protected_words)
                         
                         if contains_protected:
-                            # 🎯 CRITICAL REFACTOR: Forced to is_exact=False to honor phrase match priorities globally
                             final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
                         else:
                             if not (phrase_words & active_root_words):
@@ -369,22 +386,19 @@ elif st.session_state.stage == 2:
                                 
                     final_negatives_output = list(set(final_negatives_output))
                     
-                    total_processed_output = len(relevant_list) + len(irrelevant_list) + len(review_list)
-                    if total_input_count != total_processed_output:
-                        st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nLeakage error structural check broken. Input rows ({total_input_count}) do not match classifications output rows ({total_processed_output}).")
-                        st.stop()
-                        
                     st.session_state.audit_results = {
                         "metrics": {
                             "Total Inputted Terms": total_input_count,
                             "Relevant Terms": len(relevant_list),
                             "Irrelevant Terms": len(irrelevant_list),
                             "Review Queue Terms": len(review_list),
+                            "Potentially Overlooked Terms": len(overlooked_list),
                             "Extracted Roots Count": len(root_negatives_payload)
                         },
                         "relevant": relevant_list,
                         "irrelevant": irrelevant_list,
                         "review": review_list,
+                        "overlooked": overlooked_list,
                         "roots": root_negatives_payload,
                         "copy_paste_list": final_negatives_output
                     }
@@ -400,12 +414,13 @@ if st.session_state.audit_results:
     st.markdown("---")
     st.subheader("🛡️ Audit Summary Performance Data")
     
-    met_cols = st.columns(5)
+    met_cols = st.columns(6)
     metrics_mapping = [
         ("Total Inputted Terms", "Total Inputted Terms"),
         ("Relevant Terms ✅", "Relevant Terms"),
         ("Irrelevant Terms ❌", "Irrelevant Terms"),
         ("Review Queue 🔍", "Review Queue Terms"),
+        ("Potentially Overlooked ⚠️", "Potentially Overlooked Terms"),
         ("Extracted Roots Count 🪵", "Extracted Roots Count")
     ]
     
@@ -416,11 +431,25 @@ if st.session_state.audit_results:
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    with st.expander("🔍 Review Queue View & Direct Download", expanded=True):
-        df_rev = pd.DataFrame(res_data["review"])
-        st.dataframe(df_rev, use_container_width=True, hide_index=True)
-        if not df_rev.empty:
-            st.download_button("Download Raw Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv")
+    # Render layout view adjustments split into distinct structural sub-blocks
+    col_views = st.columns(2)
+    with col_views[0]:
+        with st.expander("🔍 Standard Review Queue View", expanded=True):
+            df_rev = pd.DataFrame(res_data["review"])
+            st.dataframe(df_rev, use_container_width=True, hide_index=True)
+            if not df_rev.empty:
+                st.download_button("Download Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv", key="btn_dl_rev")
+                
+    with col_views[1]:
+        with st.expander("⚠️ Potentially Overlooked Isolation Queue", expanded=True):
+            df_ovr = pd.DataFrame(res_data["overlooked"])
+            st.dataframe(df_ovr, use_container_width=True, hide_index=True)
+            if not df_ovr.empty:
+                st.download_button("Download Overlooked Queue CSV", data=df_ovr.to_csv(index=False), file_name="overlooked_queue_dump.csv", key="btn_dl_ovr")
+            else:
+                st.info("System operational health stable. Zero terms bypassed to fallback parameters.")
+                
+    st.markdown("<br>", unsafe_allow_html=True)
             
     col_out1, col_out2 = st.columns([2, 1])
     with col_out1:
@@ -438,6 +467,7 @@ if st.session_state.audit_results:
                 "Relevant Search Terms": res_data["relevant"],
                 "Irrelevant Search Terms": res_data["irrelevant"],
                 "Review Queue": res_data["review"],
+                "Potentially Overlooked": res_data["overlooked"],
                 "Root Negatives": res_data["roots"]
             }
             
