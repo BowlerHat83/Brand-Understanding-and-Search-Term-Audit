@@ -232,7 +232,6 @@ if st.session_state.stage == 1:
 
         # 🌐 Row 3: 5th Box - Allowed Languages Matrix
         st.markdown("#### 🌐 Allowed Target Languages & Regions")
-        st.caption("Specify targeting languages (e.g., 'English', 'Spanish', 'French'). Terms outside these markets or containing unsupported foreign syntax can be isolated downstream.")
         default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
         df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
         ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
