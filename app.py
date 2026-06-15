@@ -414,6 +414,14 @@ if st.session_state.audit_results:
     st.markdown("---")
     st.subheader("🛡️ Audit Summary Performance Data")
     
+    # 🚨 CRITICAL ERROR PROTECTION BLOCK: Warn user if any terms fell back into Overlooked
+    if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
+        st.error(
+            f"⚠️ **Classification Incomplete:** The engine was unsuccessful in classifying "
+            f"{res_data['metrics']['Potentially Overlooked Terms']} term(s) due to system processing risks. "
+            f"Please check your parameters and try running the audit again."
+        )
+    
     met_cols = st.columns(6)
     metrics_mapping = [
         ("Total Inputted Terms", "Total Inputted Terms"),
