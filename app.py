@@ -297,7 +297,7 @@ elif st.session_state.stage == 2:
     # Dynamic button context changes text and locks immediately when running switches to True
     button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
     
-    if st.button(button_text, type="primary", use_container_width=True, disabled=st.session_state.audit_running):
+    if st.button(button_text, type="secondary", use_container_width=True, disabled=st.session_state.audit_running):
         if not uploaded_file:
             st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing.")
         else:
