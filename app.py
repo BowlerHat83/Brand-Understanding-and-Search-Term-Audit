@@ -17,7 +17,6 @@ from backend_stage3 import push_to_google_sheets
 # --- INITIAL APP SETUP & STATE MANAGEMENT ---
 st.set_page_config(page_title="Negative Keyword Architect", layout="wide")
 
-# Custom CSS injection to tighten data tables and eliminate excess blank vertical row space
 st.markdown("""
     <style>
         div[data-testid="stDataFrame"] div[role="gridcell"] {
@@ -243,7 +242,6 @@ elif st.session_state.stage == 2:
     
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
     
-    # Locked at 50 to minimize roundtrip internet travel time delays
     BATCH_SIZE = 50
     
     if uploaded_file:
@@ -271,7 +269,6 @@ elif st.session_state.stage == 2:
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
-    # 🎯 UI UX Optimization: Button click fires a fullscreen UI spinner object masking processing intervals
     if st.button("Launch Search Terms Audit", type="primary", use_container_width=True):
         if not uploaded_file:
             st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing.")
@@ -294,7 +291,6 @@ elif st.session_state.stage == 2:
                     irrelevant_list = []
                     review_list = []
                     
-                    # Sequential processing loop
                     for i in range(0, total_input_count, BATCH_SIZE):
                         batch = search_terms[i:i + BATCH_SIZE]
                         counter_text.text(f"Processing Batch: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
@@ -365,7 +361,8 @@ elif st.session_state.stage == 2:
                         contains_protected = bool(phrase_words & protected_words)
                         
                         if contains_protected:
-                            final_negatives_output.append(apply_ads_notation(phrase, is_exact=True))
+                            # 🎯 CRITICAL REFACTOR: Forced to is_exact=False to honor phrase match priorities globally
+                            final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
                         else:
                             if not (phrase_words & active_root_words):
                                 final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
