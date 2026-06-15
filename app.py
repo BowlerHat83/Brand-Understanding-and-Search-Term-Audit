@@ -7,7 +7,6 @@ import streamlit as st
 import pandas as pd
 import json
 import re
-import time  # 🚀 Injected for paid tier rate-limit pacing
 from datetime import datetime
 
 # --- RE-MAPPED TO MATCH YOUR EXACT GITHUB FILENAMES ---
@@ -75,7 +74,6 @@ st.write("Google Ads Classification System build on Brand Understanding. A multi
 nav_cols = st.columns([1, 4, 1])
 
 with nav_cols[0]:
-    # Only show "Back to Stage 1" if we are actually past Stage 1
     if st.session_state.stage > 1:
         if st.button("⬅️ Back to Stage 1", use_container_width=True):
             # --- CLEAN SLATE FLUSH LOGIC ---
@@ -84,7 +82,6 @@ with nav_cols[0]:
             st.session_state.locked_rules = None
             st.session_state.audit_results = None
             
-            # Flush out temporary metadata tracking variables
             if "temp_brand_name" in st.session_state:
                 del st.session_state.temp_brand_name
             if "temp_campaign_type" in st.session_state:
@@ -97,7 +94,6 @@ with nav_cols[0]:
             st.rerun()
 
 with nav_cols[2]:
-    # Only show "Forward to Stage 2" if we have already built/locked a blueprint rule setup
     if st.session_state.stage == 1 and st.session_state.locked_rules is not None:
         if st.button("Forward to Stage 2 ➡️", use_container_width=True):
             st.session_state.stage = 2
@@ -114,20 +110,17 @@ if st.session_state.stage == 1:
     cache_options = get_cached_profiles()
     selected_cache = st.selectbox("Select a Profile Configuration Template", options=cache_options, index=0)
     
-    # --- DYNAMIC CONTROLS SWITCH ---
     if selected_cache != "Create New":
         if st.session_state.brand_profile is None:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
                 
-                # --- STRATIFIED CACHE PARSING WITH LEGACY PROTECTION ---
                 cache_parts = selected_cache.split(" | ")
                 if len(cache_parts) == 3:
                     st.session_state.temp_brand_name = cache_parts[0]
                     st.session_state.temp_campaign_type = cache_parts[1]
                     st.session_state.temp_core_offering = cache_parts[2]
                 else:
-                    # Backward compatibility for old 2-part naming patterns
                     st.session_state.temp_brand_name = cache_parts[0]
                     st.session_state.temp_campaign_type = "Search"
                     st.session_state.temp_core_offering = cache_parts[1] if len(cache_parts) > 1 else ""
@@ -143,7 +136,6 @@ if st.session_state.stage == 1:
         if st.session_state.get('last_selected_cache') != "Create New" and 'last_selected_cache' in st.session_state:
             st.session_state.brand_profile = None
             
-        # --- NEW THREE-COLUMN BALANCED INPUT LAYOUT ---
         col1, col2, col3 = st.columns(3)
         with col1:
             brand_name = st.text_input("Brand Name", value="")
@@ -160,7 +152,7 @@ if st.session_state.stage == 1:
         
         if st.button("Launch Brand Understanding Audit"):
             if not brand_name or campaign_type == "-Please Select-" or not core_offering or not landing_pages:
-                st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required input fields were left blank or unselected. Please specify a valid Brand Name, Campaign Type, Core Offering, and Landing Page dataset to clear systemic validation.")
+                st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required input fields were left blank or unselected. Please specify a valid Brand Name, Campaign Type, Core Offering, and Landing Page dataset.")
             else:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -169,7 +161,6 @@ if st.session_state.stage == 1:
                     status_text.text("Connecting to Gemini AI Engine...")
                     progress_bar.progress(25)
                     
-                    # Campaign type behaves as a label metadata tag; it is excluded from the core AI parameters text dump
                     raw_profile = run_brand_audit(brand_name, core_offering, landing_pages)
                     progress_bar.progress(75)
                     
@@ -189,9 +180,9 @@ if st.session_state.stage == 1:
                     status_text.empty()
                     err_str = str(e).lower()
                     if "429" in err_str or "quota" in err_str:
-                        st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe free-tier API speed limit was hit. Please pause for 60 seconds before clicking resume.")
+                        st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe API speed limit was hit. Please pause for 60 seconds before clicking resume.")
                     elif "gemini" in err_str:
-                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please check your network connection and try again.")
+                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please check your network connection.")
                     else:
                         st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected backend processing anomaly occurred. Details: {str(e)}")
 
@@ -238,9 +229,7 @@ if st.session_state.stage == 1:
             t_title = st.session_state.get("temp_campaign_type", "Search").strip()
             c_title = st.session_state.get("temp_core_offering", "Offering").strip()
             
-            # --- INCORPORATING CAMPAIGN TYPE INTO CACHE STRUCTURAL STRING ---
             cache_key = f"{b_title} | {t_title} | {c_title}"
-            
             save_profile_to_cache(cache_key, edited_profile)
             
             st.session_state.locked_rules = edited_profile
@@ -256,7 +245,9 @@ elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
-    BATCH_SIZE = 25
+    
+    # 🎯 OPTIMIZED BATCH SIZE TO DECREASE NETWORK LATENCY OVERHEAD
+    BATCH_SIZE = 50
     
     if uploaded_file:
         try:
@@ -268,22 +259,15 @@ elif st.session_state.stage == 2:
                 raw_count = len(df_preview[term_col_preview].dropna().drop_duplicates())
                 num_batches = (raw_count + BATCH_SIZE - 1) // BATCH_SIZE
                 
-                # --- BACKEND CALCULATION: BOTH TIERS ---
-                paid_seconds = max(int(num_batches * 1.5), 3)
+                paid_seconds = max(int(num_batches * 2.0), 3)
                 if paid_seconds >= 60:
                     paid_display = f"{paid_seconds // 60} min {paid_seconds % 60} sec" if paid_seconds % 60 > 0 else f"{paid_seconds // 60} min"
                 else:
                     paid_display = f"{paid_seconds} seconds"
                 
-                free_seconds = 8 if num_batches <= 1 else 60 + (num_batches * 5)
-                if free_seconds >= 60:
-                    free_display = f"{free_seconds // 60} min {free_seconds % 60} sec" if free_seconds % 60 > 0 else f"{free_seconds // 60} min"
-                else:
-                    free_display = f"{free_seconds} seconds"
-                
                 st.warning(
-                    f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} optimized API calls).\n\n"
-                    f"⏱️ **Estimated Run Time:** **{paid_display}** ({free_display} if using Free Tier)"
+                    f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} optimized linear API calls).\n\n"
+                    f"⏱️ **Paid Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
                 st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
@@ -292,7 +276,7 @@ elif st.session_state.stage == 2:
 
     if st.button("Launch Search Terms Audit"):
         if not uploaded_file:
-            st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing. Please select and load a file before hitting execute.")
+            st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing.")
         else:
             try:
                 uploaded_file.seek(0)
@@ -311,6 +295,7 @@ elif st.session_state.stage == 2:
                 irrelevant_list = []
                 review_list = []
                 
+                # Sequential Loop processing optimized at BATCH_SIZE = 50
                 for i in range(0, total_input_count, BATCH_SIZE):
                     batch = search_terms[i:i + BATCH_SIZE]
                     counter_text.text(f"Processing Batch: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
@@ -339,19 +324,19 @@ elif st.session_state.stage == 2:
                         m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
                         m4.metric("Review Queue 🔍", f"{len(review_list)}")
                         
-                        # 🎯 Paid Tier Server Breathing Window (Mitigates 503 Capacity/High Demand Faults)
-                        time.sleep(1.0)
+                        # Note: Artificial sleep brakes have been completely uninstalled here 
+                        # to enable maximum paid-tier processing execution.
                         
                     except Exception as batch_err:
                         err_str = str(batch_err).lower()
                         if "429" in err_str or "quota" in err_str:
-                            st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe free-tier API speed limit was hit. Please pause for 60 seconds before clicking resume.")
+                            st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe account API limits were hit. Please wait a brief moment.")
                         elif "503" in err_str or "unavailable" in err_str:
-                            st.error("⚠️ **Error Code: E007 - Cloud Server High Demand**\n\nGoogle Cloud is experiencing a temporary server capacity spike. Please wait a few seconds and click 'Launch Search Terms Audit' again to pick up where you left off.")
+                            st.error("⚠️ **Error Code: E007 - Cloud Server High Demand**\n\nGoogle Cloud is experiencing a temporary server capacity spike. Please click 'Launch Search Terms Audit' again to retry.")
                         elif "validation error" in err_str or "eof while parsing" in err_str or "json" in err_str:
-                            st.error("⚠️ **Error Code: E006 - Batching Threshold Issue**\n\nThe text data payload in this batch was too large for the AI engine to return completely. The system has automatically safe-stopped. To fix this, change **BATCH_SIZE = 25** to **BATCH_SIZE = 15** at the top of Stage 2 in your app.py file.")
+                            st.error("⚠️ **Error Code: E006 - Batching Threshold Issue**\n\nThe text data payload in this batch was too large for structural parsing validation. Try lowering BATCH_SIZE back to 25 temporarily.")
                         elif "gemini" in err_str:
-                            st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please check your network connection and try again.")
+                            st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process.")
                         else:
                             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected processing failure occurred on batch data execution chunk. Details: {str(batch_err)}")
                         st.stop()
@@ -422,7 +407,6 @@ if st.session_state.audit_results:
     st.markdown("---")
     st.subheader("🛡️ Audit Summary Performance Data")
     
-    # Render key summary metrics cleanly in a bold horizontal row without tables
     met_cols = st.columns(5)
     metrics_mapping = [
         ("Total Inputted Terms", "Total Inputted Terms"),
@@ -441,7 +425,6 @@ if st.session_state.audit_results:
     
     with st.expander("🔍 Review Queue View & Direct Download", expanded=True):
         df_rev = pd.DataFrame(res_data["review"])
-        # Display table cleanly, removing row-count index padding space
         st.dataframe(df_rev, use_container_width=True, hide_index=True)
         if not df_rev.empty:
             st.download_button("Download Raw Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv")
