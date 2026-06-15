@@ -70,6 +70,8 @@ if "locked_rules" not in st.session_state:
     st.session_state.locked_rules = None
 if "audit_results" not in st.session_state:
     st.session_state.audit_results = None
+if "audit_running" not in st.session_state:
+    st.session_state.audit_running = False
 
 # ==========================================
 # 🗺️ PERSISTENT NAVIGATION HUB
@@ -80,8 +82,9 @@ st.write("Google Ads Classification System built on an expanding Brand Knowledge
 nav_cols = st.columns([1, 4, 1])
 
 with nav_cols[0]:
+    # Disable back button navigation while processing to maintain state integrity
     if st.session_state.stage > 1:
-        if st.button("⬅️ Back to Stage 1", use_container_width=True):
+        if st.button("⬅️ Back to Stage 1", use_container_width=True, disabled=st.session_state.audit_running):
             st.session_state.stage = 1
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
@@ -259,7 +262,8 @@ if st.session_state.stage == 1:
 elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     
-    uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
+    # Block file adjustments while calculations are actively happening
+    uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"], disabled=st.session_state.audit_running)
     
     BATCH_SIZE = 250
     
@@ -284,166 +288,178 @@ elif st.session_state.stage == 2:
                     f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
-                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
+                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\Missing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
-    if st.button("Launch Search Terms Audit", type="primary", use_container_width=True):
+    # Dynamic button context changes text and locks immediately when running switches to True
+    button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
+    
+    if st.button(button_text, type="primary", use_container_width=True, disabled=st.session_state.audit_running):
         if not uploaded_file:
             st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing.")
         else:
-            with st.spinner("⏳ Running Search Terms Audit Engine... Please do not close or refresh this tab."):
-                try:
-                    uploaded_file.seek(0)
-                    
-                    df_input = pd.read_csv(uploaded_file)
-                    term_col = next((c for c in df_input.columns if "search term" in c.lower() or "query" in c.lower()), None)
-                    search_terms = df_input[term_col].dropna().drop_duplicates().tolist()
-                    total_input_count = len(search_terms)
-                    
-                    progress_bar = st.progress(0)
-                    counter_text = st.empty()
-                    
-                    metric_slots = st.columns(5)
-                    m1, m2, m3, m4, m5 = (
-                        metric_slots[0].empty(), 
-                        metric_slots[1].empty(), 
-                        metric_slots[2].empty(), 
-                        metric_slots[3].empty(),
-                        metric_slots[4].empty()
-                    )
-                    
-                    relevant_list = []
-                    irrelevant_list = []
-                    review_list = []
-                    overlooked_list = []
-                    processed_terms_set = set()
-                    
-                    hit_processing_failure = False
-                    
-                    for i in range(0, total_input_count, BATCH_SIZE):
-                        batch = search_terms[i:i + BATCH_SIZE]
-                        counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
-                        
-                        api_payload_batch = []
-                        for term in batch:
-                            if is_foreign_script(term):
-                                irrelevant_list.append({
-                                    "Search Term": term,
-                                    "Confidence Score": 1.00,
-                                    "Reasoning": "Automated Guardrail: Detected foreign non-Latin alphabet character."
-                                })
-                                processed_terms_set.add(term)
-                            else:
-                                api_payload_batch.append(term)
+            st.session_state.audit_running = True
+            st.rerun()
 
-                        if api_payload_batch:
-                            try:
-                                batch_results = classify_terms_batch(api_payload_batch, st.session_state.locked_rules)
-                                
-                                for res in batch_results:
-                                    term_string = res["search_term"]
-                                    processed_terms_set.add(term_string)
-                                    
-                                    row_data = {
-                                        "Search Term": term_string,
-                                        "Confidence Score": res["confidence"],
-                                        "Reasoning": res["reason"]
-                                    }
-                                    if res["classification"] == "relevant":
-                                        relevant_list.append(row_data)
-                                    elif res["classification"] == "irrelevant":
-                                        irrelevant_list.append(row_data)
-                                    else:
-                                        review_list.append(row_data)
-                                        
-                            except Exception as batch_err:
-                                hit_processing_failure = True
-                                for term in api_payload_batch:
-                                    if term not in processed_terms_set:
-                                        overlooked_list.append({
-                                            "Search Term": term, 
-                                            "Confidence Score": 0.00, 
-                                            "Reasoning": f"Bypass validation fallback loop segment: {str(batch_err)}"
-                                        })
-                                        processed_terms_set.add(term)
-                        
-                        percent_complete = int((min(i + BATCH_SIZE, total_input_count) / total_input_count) * 100)
-                        progress_bar.progress(percent_complete)
-                        
-                        m1.metric("Processed", f"{len(processed_terms_set)}")
-                        m2.metric("Relevant ✅", f"{len(relevant_list)}")
-                        m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
-                        m4.metric("Review Queue 🔍", f"{len(review_list)}")
-                        m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
-                        
-                        if hit_processing_failure:
-                            break
-
-                    for term in search_terms:
-                        if term not in processed_terms_set:
-                            overlooked_list.append({
-                                "Search Term": term, 
-                                "Confidence Score": 0.00, 
-                                "Reasoning": "System reconciliation safety framework catch (Process Paused)"
+    # Split processing runtime zone
+    if st.session_state.audit_running:
+        with st.spinner("⏳ Running Search Terms Audit Engine... Please do not close or refresh this tab."):
+            try:
+                uploaded_file.seek(0)
+                
+                df_input = pd.read_csv(uploaded_file)
+                term_col = next((c for c in df_input.columns if "search term" in c.lower() or "query" in c.lower()), None)
+                search_terms = df_input[term_col].dropna().drop_duplicates().tolist()
+                total_input_count = len(search_terms)
+                
+                progress_bar = st.progress(0)
+                counter_text = st.empty()
+                
+                metric_slots = st.columns(5)
+                m1, m2, m3, m4, m5 = (
+                    metric_slots[0].empty(), 
+                    metric_slots[1].empty(), 
+                    metric_slots[2].empty(), 
+                    metric_slots[3].empty(),
+                    metric_slots[4].empty()
+                )
+                
+                relevant_list = []
+                irrelevant_list = []
+                review_list = []
+                overlooked_list = []
+                processed_terms_set = set()
+                
+                hit_processing_failure = False
+                
+                for i in range(0, total_input_count, BATCH_SIZE):
+                    batch = search_terms[i:i + BATCH_SIZE]
+                    counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
+                    
+                    api_payload_batch = []
+                    for term in batch:
+                        if is_foreign_script(term):
+                            irrelevant_list.append({
+                                "Search Term": term,
+                                "Confidence Score": 1.00,
+                                "Reasoning": "Automated Guardrail: Detected foreign non-Latin alphabet character."
                             })
-
-                    irr_phrases = [r["Search Term"] for r in irrelevant_list]
-                    saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
-                    
-                    protected_list = st.session_state.locked_rules.get("protected_terms", [])
-                    
-                    raw_roots = extract_root_negatives(irr_phrases, saved_phrases, protected_list)
-                    root_negatives_payload = [
-                        {"Root Word": word, "Blocked Volume Count": count, "Ads Notation Match": apply_ads_notation(word, is_exact=False)}
-                        for word, count in raw_roots.items()
-                    ]
-                    
-                    final_negatives_output = []
-                    active_root_words = set(raw_roots.keys())
-                    
-                    for rn in root_negatives_payload:
-                        final_negatives_output.append(rn["Ads Notation Match"])
-                        
-                    for irr in irrelevant_list:
-                        phrase = irr["Search Term"]
-                        phrase_words = set(re.findall(r'\b\w+\b', phrase.lower()))
-                        
-                        protected_words = set()
-                        for p_term in protected_list:
-                            protected_words.update(re.findall(r'\b\w+\b', p_term.lower()))
-                            
-                        contains_protected = bool(phrase_words & protected_words)
-                        
-                        if contains_protected:
-                            final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
+                            processed_terms_set.add(term)
                         else:
-                            if not (phrase_words & active_root_words):
-                                final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
+                            api_payload_batch.append(term)
+
+                    if api_payload_batch:
+                        try:
+                            batch_results = classify_terms_batch(api_payload_batch, st.session_state.locked_rules)
+                            
+                            for res in batch_results:
+                                term_string = res["search_term"]
+                                processed_terms_set.add(term_string)
                                 
-                    final_negatives_output = list(set(final_negatives_output))
+                                row_data = {
+                                    "Search Term": term_string,
+                                    "Confidence Score": res["confidence"],
+                                    "Reasoning": res["reason"]
+                                }
+                                if res["classification"] == "relevant":
+                                    relevant_list.append(row_data)
+                                elif res["classification"] == "irrelevant":
+                                    irrelevant_list.append(row_data)
+                                else:
+                                    review_list.append(row_data)
+                                    
+                        except Exception as batch_err:
+                            hit_processing_failure = True
+                            for term in api_payload_batch:
+                                if term not in processed_terms_set:
+                                    overlooked_list.append({
+                                        "Search Term": term, 
+                                        "Confidence Score": 0.00, 
+                                        "Reasoning": f"Bypass validation fallback loop segment: {str(batch_err)}"
+                                    })
+                                    processed_terms_set.add(term)
                     
-                    st.session_state.audit_results = {
-                        "metrics": {
-                            "Total Inputted Terms": total_input_count,
-                            "Relevant Terms": len(relevant_list),
-                            "Irrelevant Terms": len(irrelevant_list),
-                            "Review Queue Terms": len(review_list),
-                            "Potentially Overlooked Terms": len(overlooked_list),
-                            "Extracted Roots Count": len(root_negatives_payload)
-                        },
-                        "relevant": relevant_list,
-                        "irrelevant": irrelevant_list,
-                        "review": review_list,
-                        "overlooked": overlooked_list,
-                        "roots": root_negatives_payload,
-                        "copy_paste_list": final_negatives_output
-                    }
-                    st.success("Analysis matrix generated.")
-                    st.rerun()
+                    percent_complete = int((min(i + BATCH_SIZE, total_input_count) / total_input_count) * 100)
+                    progress_bar.progress(percent_complete)
                     
-                except Exception as main_err:
-                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCore ledger computation failed on analysis layout execution: {str(main_err)}")
+                    m1.metric("Processed", f"{len(processed_terms_set)}")
+                    m2.metric("Relevant ✅", f"{len(relevant_list)}")
+                    m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
+                    m4.metric("Review Queue 🔍", f"{len(review_list)}")
+                    m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
+                    
+                    if hit_processing_failure:
+                        break
+
+                for term in search_terms:
+                    if term not in processed_terms_set:
+                        overlooked_list.append({
+                            "Search Term": term, 
+                            "Confidence Score": 0.00, 
+                            "Reasoning": "System reconciliation safety framework catch (Process Paused)"
+                        })
+
+                irr_phrases = [r["Search Term"] for r in irrelevant_list]
+                saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
+                
+                protected_list = st.session_state.locked_rules.get("protected_terms", [])
+                
+                raw_roots = extract_root_negatives(irr_phrases, saved_phrases, protected_list)
+                root_negatives_payload = [
+                    {"Root Word": word, "Blocked Volume Count": count, "Ads Notation Match": apply_ads_notation(word, is_exact=False)}
+                    for word, count in raw_roots.items()
+                ]
+                
+                final_negatives_output = []
+                active_root_words = set(raw_roots.keys())
+                
+                for rn in root_negatives_payload:
+                    final_negatives_output.append(rn["Ads Notation Match"])
+                    
+                for irr in irrelevant_list:
+                    phrase = irr["Search Term"]
+                    phrase_words = set(re.findall(r'\b\w+\b', phrase.lower()))
+                    
+                    protected_words = set()
+                    for p_term in protected_list:
+                        protected_words.update(re.findall(r'\b\w+\b', p_term.lower()))
+                        
+                    contains_protected = bool(phrase_words & protected_words)
+                    
+                    if contains_protected:
+                        final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
+                    else:
+                        if not (phrase_words & active_root_words):
+                            final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
+                            
+                final_negatives_output = list(set(final_negatives_output))
+                
+                st.session_state.audit_results = {
+                    "metrics": {
+                        "Total Inputted Terms": total_input_count,
+                        "Relevant Terms": len(relevant_list),
+                        "Irrelevant Terms": len(irrelevant_list),
+                        "Review Queue Terms": len(review_list),
+                        "Potentially Overlooked Terms": len(overlooked_list),
+                        "Extracted Roots Count": len(root_negatives_payload)
+                    },
+                    "relevant": relevant_list,
+                    "irrelevant": irrelevant_list,
+                    "review": review_list,
+                    "overlooked": overlooked_list,
+                    "roots": root_negatives_payload,
+                    "copy_paste_list": final_negatives_output
+                }
+                # Unlatch UI runtime lock configuration variables
+                st.session_state.audit_running = False
+                st.success("Analysis matrix generated.")
+                st.rerun()
+                
+            except Exception as main_err:
+                # Release execution lock parameters on backend failures to prevent locked UI
+                st.session_state.audit_running = False
+                st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCore ledger computation failed on analysis layout execution: {str(main_err)}")
 
 if st.session_state.audit_results:
     res_data = st.session_state.audit_results
