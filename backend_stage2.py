@@ -8,13 +8,12 @@ from typing import List
 
 def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dict]:
     """
-    ⚡ HIGH-RESILIENCE HIGH-VOLUME ENGINE: Uses plain text CSV streaming.
-    Equipped with an enhanced adaptive cooldown matrix to survive Google 503 capacity spikes (Error E007).
+    ⚡ LINEAR BATCH MATRIX ENGINE: Optimized for custom batch windows (e.g., 250 rows).
+    Uses high-speed plain text streaming to bypass structural parsing errors.
     """
     api_key = st.secrets.get("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
     
-    # Format input array with clear index markers to ensure 1:1 mapping
     formatted_input = "\n".join([f"{idx}|{term}" for idx, term in enumerate(terms_batch)])
     
     prompt = f"""
@@ -34,7 +33,7 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
         "Classify each query into exactly one of these categories: 'relevant', 'irrelevant', or 'review'.\n\n"
         "CRITICAL OUTPUT FORMAT:\n"
         "Return your response ONLY as a plain text list using a pipe character (|) delimiter. "
-        "Do not use markdown code blocks (no ```json or ```text). Do not include a header row. "
+        "Do not use markdown code blocks (no ```json or ```text). Do not include a header row.\n"
         "Format exactly like this:\n"
         "index|classification|confidence|micro_reason\n\n"
         "Rules:\n"
@@ -45,8 +44,7 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
         "You must output exactly one line for every single item in the input list. Do not omit any row."
     )
     
-    # Enhanced backoff config: Max 5 retries, starting with a 3.0 second breather
-    max_retries = 5
+    max_retries = 4
     initial_delay = 3.0
     
     for attempt in range(max_retries):
@@ -92,22 +90,17 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
             if len(parsed_results) < (len(terms_batch) * 0.7):
                 raise ValueError("Incomplete text matrix returned from API.")
                 
-            # 🎉 Success! Introduce a tiny, tactical 0.5-second buffer pause before starting the next batch 
-            # This creates a steady processing rhythm and keeps your app under the server's sudden burst radar.
-            time.sleep(0.5)
+            # Introducing a strategic 1-second delay between 250-row chunks 
+            # to let Google's rate-limiter clear out completely.
+            time.sleep(1.0)
             return parsed_results
             
         except Exception as e:
             err_str = str(e).lower()
-            # If we hit an E007 capacity spike (503), cloud drop, or rate limit throttling (429)
-            if "503" in err_str or "unavailable" in err_str or "429" in err_str or "incomplete" in err_str or "capacity" in err_str:
+            if "503" in err_str or "unavailable" in err_str or "429" in err_str or "capacity" in err_str:
                 if attempt < max_retries - 1:
-                    # Calculate progressive wait: Attempt 1 = 3s, Attempt 2 = 6s, Attempt 3 = 12s...
-                    sleep_time = initial_delay * (2 ** attempt)
-                    time.sleep(sleep_time)
+                    time.sleep(initial_delay * (2 ** attempt))
                     continue  
-            
-            # If it's a completely different unrecoverable error, pass it upward
             raise RuntimeError(f"Engine failure on parsing parameters: {str(e)}")
 
 def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], protected_terms: List[str] = None) -> dict:
