@@ -1,6 +1,6 @@
 import re
 import json
-import time  # 🚀 Added for the backoff pause mechanism
+import time
 import collections
 import streamlit as st
 from pydantic import BaseModel, Field
@@ -46,7 +46,6 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
         "Keep your reason values strictly below a 5-word micro-readout description."
     )
     
-    # 🎯 START RESILIENT RETRY CONFIGURATION
     max_retries = 4
     initial_delay = 2.0  # Seconds to wait before the first retry
     
@@ -63,7 +62,7 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
                 )
             )
             
-            # Strip potential markdown blocks
+            # Strip potential markdown blocks to protect Pydantic validation
             clean_text = response.text.strip()
             if clean_text.startswith("```"):
                 clean_text = re.sub(r"^```json\s*|\s*```$", "", clean_text, flags=re.MULTILINE).strip()
@@ -73,17 +72,13 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
             
         except Exception as e:
             err_str = str(e).lower()
-            # If it's a server capacity or throttling issue, wait and retry
             if "503" in err_str or "unavailable" in err_str or "429" in err_str:
                 if attempt < max_retries - 1:
-                    # Double the delay each time (e.g., wait 2s, then 4s, then 8s)
                     sleep_time = initial_delay * (2 ** attempt)
                     time.sleep(sleep_time)
-                    continue  # Jump to the next loop iteration to retry
+                    continue  
             
-            # If it's a different error or we've run out of retries, throw the error to the UI
             raise RuntimeError(f"Cloud Batch Matrix Engine failed on execution: {str(e)}")
-
 
 def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], protected_terms: List[str] = None) -> dict:
     """ 
@@ -111,11 +106,11 @@ def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], 
     root_negatives = {word: count for word, count in word_counts.items() if count >= 2}
     return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
 
-
 def apply_ads_notation(term: str, is_exact: bool = False) -> str:
     """ 
     Correctly wraps strings into strict parameter formats for Google Ads.
-    Safely handles phrase match vs exact match downgrades.
+    Paid Tier Custom Optimization: Safely maps long-form multi-word 
+    search terms straight to standard phrase match notation.
     """
     cleaned = str(term).strip().lower()
     if not cleaned: 
@@ -123,4 +118,6 @@ def apply_ads_notation(term: str, is_exact: bool = False) -> str:
         
     if is_exact:
         return f"[{cleaned}]"
-    return cleaned if len(cleaned.split()) == 1 else f'"{cleaned}"'
+        
+    # Logic Shift: If the query contains 2 or more words, wrap it strictly in phrase match quotes
+    return f'"{cleaned}"' if len(cleaned.split()) >= 2 else cleaned
