@@ -7,6 +7,7 @@ import streamlit as st
 import pandas as pd
 import json
 import re
+import time  # 🚀 Injected for paid tier rate-limit pacing
 from datetime import datetime
 
 # --- RE-MAPPED TO MATCH YOUR EXACT GITHUB FILENAMES ---
@@ -338,10 +339,15 @@ elif st.session_state.stage == 2:
                         m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
                         m4.metric("Review Queue 🔍", f"{len(review_list)}")
                         
+                        # 🎯 Paid Tier Server Breathing Window (Mitigates 503 Capacity/High Demand Faults)
+                        time.sleep(1.0)
+                        
                     except Exception as batch_err:
                         err_str = str(batch_err).lower()
                         if "429" in err_str or "quota" in err_str:
                             st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe free-tier API speed limit was hit. Please pause for 60 seconds before clicking resume.")
+                        elif "503" in err_str or "unavailable" in err_str:
+                            st.error("⚠️ **Error Code: E007 - Cloud Server High Demand**\n\nGoogle Cloud is experiencing a temporary server capacity spike. Please wait a few seconds and click 'Launch Search Terms Audit' again to pick up where you left off.")
                         elif "validation error" in err_str or "eof while parsing" in err_str or "json" in err_str:
                             st.error("⚠️ **Error Code: E006 - Batching Threshold Issue**\n\nThe text data payload in this batch was too large for the AI engine to return completely. The system has automatically safe-stopped. To fix this, change **BATCH_SIZE = 25** to **BATCH_SIZE = 15** at the top of Stage 2 in your app.py file.")
                         elif "gemini" in err_str:
