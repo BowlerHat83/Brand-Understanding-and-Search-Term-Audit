@@ -8,8 +8,8 @@ from typing import List
 
 def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dict]:
     """
-    ⚡ HIGH-VOLUME ENGINE: Utilizes ultra-fast plain text CSV streaming.
-    Completely immune to structural JSON parsing validation failures (Error E006).
+    ⚡ HIGH-RESILIENCE HIGH-VOLUME ENGINE: Uses plain text CSV streaming.
+    Equipped with an enhanced adaptive cooldown matrix to survive Google 503 capacity spikes (Error E007).
     """
     api_key = st.secrets.get("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
@@ -45,8 +45,9 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
         "You must output exactly one line for every single item in the input list. Do not omit any row."
     )
     
-    max_retries = 4
-    initial_delay = 2.0
+    # Enhanced backoff config: Max 5 retries, starting with a 3.0 second breather
+    max_retries = 5
+    initial_delay = 3.0
     
     for attempt in range(max_retries):
         try:
@@ -62,7 +63,6 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
             raw_text = response.text.strip()
             parsed_results = []
             
-            # Bulletproof custom plain text line-by-line parser
             lines = raw_text.split('\n')
             for line in lines:
                 line = line.strip().replace('`', '')
@@ -77,7 +77,6 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
                         confidence = float(parts[2].strip())
                         reason = parts[3].strip() if len(parts) > 3 else "evaluated match context"
                         
-                        # Guardrail standard categorization strings
                         if classification not in ["relevant", "irrelevant", "review"]:
                             classification = "review"
                             
@@ -85,23 +84,30 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
                             "search_term": terms_batch[idx_val] if idx_val < len(terms_batch) else parts[0],
                             "classification": classification,
                             "confidence": confidence,
-                            "reason": reason[:40] # Keep reason character footprint safe
+                            "reason": reason[:40]
                         })
                     except:
-                        continue # Skip malformed single lines safely instead of crashing the batch
+                        continue
             
-            # Verification check: If the output completely lost rows, force a retry parameter
             if len(parsed_results) < (len(terms_batch) * 0.7):
                 raise ValueError("Incomplete text matrix returned from API.")
                 
+            # 🎉 Success! Introduce a tiny, tactical 0.5-second buffer pause before starting the next batch 
+            # This creates a steady processing rhythm and keeps your app under the server's sudden burst radar.
+            time.sleep(0.5)
             return parsed_results
             
         except Exception as e:
             err_str = str(e).lower()
-            if "503" in err_str or "unavailable" in err_str or "429" in err_str or "incomplete" in err_str:
+            # If we hit an E007 capacity spike (503), cloud drop, or rate limit throttling (429)
+            if "503" in err_str or "unavailable" in err_str or "429" in err_str or "incomplete" in err_str or "capacity" in err_str:
                 if attempt < max_retries - 1:
-                    time.sleep(initial_delay * (2 ** attempt))
+                    # Calculate progressive wait: Attempt 1 = 3s, Attempt 2 = 6s, Attempt 3 = 12s...
+                    sleep_time = initial_delay * (2 ** attempt)
+                    time.sleep(sleep_time)
                     continue  
+            
+            # If it's a completely different unrecoverable error, pass it upward
             raise RuntimeError(f"Engine failure on parsing parameters: {str(e)}")
 
 def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], protected_terms: List[str] = None) -> dict:
