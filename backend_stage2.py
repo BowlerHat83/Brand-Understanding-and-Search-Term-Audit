@@ -1,6 +1,7 @@
 import re
 import json
 import collections
+import streamlit as st
 from pydantic import BaseModel, Field
 from typing import List, Literal
 from google import genai
@@ -19,11 +20,12 @@ class BatchClassificationResponse(BaseModel):
 
 def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dict]:
     """
-    Evaluates a batch group of 50 search terms simultaneously in a single API container request.
-    Staying completely within free-tier RPM quotas.
+    Evaluates a batch group of search terms simultaneously in a single API container request.
+    Staying completely within free-tier/paid-tier quotas seamlessly.
     """
-    # Initializes client utilizing your secure cloud-stored GEMINI_API_KEY environment token
-    client = genai.Client()
+    # Securely retrieve the upgraded token directly from Streamlit secrets
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
     
     prompt = f"""
     Evaluate the following array list of PPC search queries:
@@ -56,8 +58,13 @@ def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dic
             )
         )
         
+        # Strip potential markdown blocks (```json ... ```) to protect Pydantic validation
+        clean_text = response.text.strip()
+        if clean_text.startswith("```"):
+            clean_text = re.sub(r"^```json\s*|\s*```$", "", clean_text, flags=re.MULTILINE).strip()
+            
         # Validates and maps the raw response string straight to Python types dictionary format
-        parsed_data = BatchClassificationResponse.model_validate_json(response.text).model_dump()
+        parsed_data = BatchClassificationResponse.model_validate_json(clean_text).model_dump()
         return parsed_data["results"]
         
     except Exception as e:
@@ -84,13 +91,12 @@ def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], 
                 
     # 3. Tally word instances across unique irrelevant phrases
     for term in irrelevant_terms:
-        # Using a set per phrase ensures we don't double-count a word repeated inside a single string
         words_in_phrase = set(re.findall(r'\b\w+\b', str(term).lower()))
         for word in words_in_phrase:
             if word not in protected_tokens and not word.isdigit() and len(word) > 2:
                 word_counts[word] = word_counts.get(word, 0) + 1
                 
-    # 🌟 THE COMPRESSION FILTER: Drop singletons. Must hit multiple (2 or more) terms to become a root.
+    # Drop singletons. Must hit multiple (2 or more) terms to become a root.
     root_negatives = {word: count for word, count in word_counts.items() if count >= 2}
     
     return dict(sorted(root_negatives.items(), key=lambda item: item[1], reverse=True))
