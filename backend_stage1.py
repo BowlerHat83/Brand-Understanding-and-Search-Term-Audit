@@ -1,4 +1,6 @@
 import os
+import re
+import streamlit as st
 from pydantic import BaseModel, Field
 from typing import List
 from google import genai
@@ -15,9 +17,9 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
     """
     Analyzes brand positioning and returns a structured profile ruleset.
     """
-    # Initialize the official modern SDK client
-    # Assumes GEMINI_API_KEY is configured in your environment variables
-    client = genai.Client()
+    # Securely retrieve the upgraded token directly from Streamlit secrets
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
     
     prompt = f"""
     Analyze the following brand context for a Google Ads account:
@@ -42,8 +44,14 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
                 temperature=0.1
             )
         )
+        
+        # Strip potential markdown blocks (```json ... ```) to prevent Pydantic parsing crashes
+        clean_text = response.text.strip()
+        if clean_text.startswith("```"):
+            clean_text = re.sub(r"^```json\s*|\s*```$", "", clean_text, flags=re.MULTILINE).strip()
+            
         # Parse output safely via validation schema
-        return BrandProfile.model_validate_json(response.text).model_dump()
+        return BrandProfile.model_validate_json(clean_text).model_dump()
         
     except Exception as e:
         # Wrap up backend exceptions to re-throw clearly to the main app wrapper
