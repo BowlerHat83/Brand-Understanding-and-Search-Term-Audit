@@ -3,7 +3,7 @@ import re
 import streamlit as st
 from pydantic import BaseModel, Field
 from typing import List
-from google import genai
+import google.genai as genai
 from google.genai import types
 
 # Define the structured output format for the brand profile
