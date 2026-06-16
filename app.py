@@ -8,6 +8,8 @@ import pandas as pd
 import json
 import re
 from datetime import datetime
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- RE-MAPPED TO MATCH YOUR EXACT GITHUB FILENAMES ---
 from backend_stage1 import run_brand_audit
@@ -35,23 +37,82 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-CACHE_DIR = "brand_cache"
-if not os.path.exists(CACHE_DIR):
-    os.makedirs(CACHE_DIR)
+# --- BULLETPROOF GOOGLE SHEETS CACHE LAYER ---
+def get_gspread_client():
+    """Authenticates using your existing Stage 3 service account secrets."""
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+    return gspread.authorize(creds)
+
+def safe_split_cell(cell_value):
+    """Splits comma-separated text safely, stripping whitespace and empty items."""
+    if not cell_value:
+        return []
+    clean_value = str(cell_value).strip("[]\"'")
+    return [item.strip() for item in clean_value.split(",") if item.strip()]
 
 def get_cached_profiles():
-    files = [f for f in os.listdir(CACHE_DIR) if f.endswith('.json')]
-    sorted_files = sorted([f.replace('.json', '') for f in files], key=str.lower)
-    return ["Create New"] + sorted_files
+    """Pulls all available brand profile names from the Google Sheet rows."""
+    try:
+        gc = get_gspread_client()
+        sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
+        records = sheet.get_all_records()
+        
+        profile_names = [row["Profile Name"] for row in records if row.get("Profile Name")]
+        return ["Create New"] + sorted(profile_names, key=str.lower)
+    except Exception:
+        return ["Create New"]
 
-def load_cached_profile(filename):
-    with open(os.path.join(CACHE_DIR, f"{filename}.json"), "r") as f:
-        return json.load(f)
+def load_cached_profile(profile_name):
+    """Finds the matching row, safely handling human-edited text formatting."""
+    try:
+        gc = get_gspread_client()
+        sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
+        records = sheet.get_all_records()
+        
+        for row in records:
+            if str(row["Profile Name"]).strip() == str(profile_name).strip():
+                return {
+                    "brand_variants": safe_split_cell(row.get("Brand Variants", "")),
+                    "protected_terms": safe_split_cell(row.get("Protected Terms", "")),
+                    "competitors": safe_split_cell(row.get("Competitors", "")),
+                    "irrelevant_terms": safe_split_cell(row.get("Irrelevant Terms", "")),
+                    "allowed_languages": safe_split_cell(row.get("Allowed Languages", "English"))
+                }
+        return None
+    except Exception as e:
+        st.error(f"Failed to fetch profile from cloud sheet: {str(e)}")
+        return None
 
 def save_profile_to_cache(name, data):
-    safe_name = name.replace("/", "-").strip()
-    with open(os.path.join(CACHE_DIR, f"{safe_name}.json"), "w") as f:
-        json.dump(data, f)
+    """Saves lists as clean, human-readable comma-separated strings."""
+    gc = get_gspread_client()
+    sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
+    records = sheet.get_all_records()
+    
+    row_payload = [
+        name,
+        ", ".join(data.get("brand_variants", [])),
+        ", ".join(data.get("protected_terms", [])),
+        ", ".join(data.get("competitors", [])),
+        ", ".join(data.get("irrelevant_terms", [])),
+        ", ".join(data.get("allowed_languages", ["English"]))
+    ]
+    
+    row_index = None
+    for idx, row in enumerate(records, start=2):
+        if str(row["Profile Name"]).strip() == str(name).strip():
+            row_index = idx
+            break
+            
+    if row_index:
+        sheet.update(range_name=f"A{row_index}:F{row_index}", values=[row_payload])
+    else:
+        sheet.append_row(row_payload)
+# --- END CACHE LAYER ---
 
 def is_foreign_script(text):
     """
