@@ -62,9 +62,9 @@ def get_cached_profiles():
         records = sheet.get_all_records()
         
         profile_names = [row["Profile Name"] for row in records if row.get("Profile Name")]
-        return ["Create New"] + sorted(profile_names, key=str.lower)
+        return ["-Create New-"] + sorted(profile_names, key=str.lower)
     except Exception:
-        return ["Create New"]
+        return ["-Create New-"]
 
 def load_cached_profile(profile_name):
     """Finds the matching row, safely handling human-edited text formatting."""
