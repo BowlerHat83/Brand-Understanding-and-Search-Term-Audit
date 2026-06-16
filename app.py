@@ -310,7 +310,7 @@ if st.session_state.stage == 1:
                     if "429" in err_str or "quota" in err_str:
                         st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe API speed limit was hit. Please pause for 60 seconds.")
                     elif "gemini" in err_str:
-                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process.")
+                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please Try Again Shortly.")
                     else:
                         st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected backend processing anomaly occurred. Details: {str(e)}")
 
