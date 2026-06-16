@@ -228,7 +228,6 @@ if st.session_state.stage == 1:
     
     if selected_cache == "-Please Select-":
         st.info("ℹ️ Please select a specific Campaign / Ad Group Workspace from the dropdown menu above to load its profile parameters.")
-        # Reset state so old configurations don't linger visible below
         st.session_state.brand_profile = None
         st.session_state.locked_rules = None
 
@@ -310,7 +309,7 @@ if st.session_state.stage == 1:
                     if "429" in err_str or "quota" in err_str:
                         st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe API speed limit was hit. Please pause for 60 seconds.")
                     elif "gemini" in err_str:
-                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please Try Again Shortly.")
+                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process.")
                     else:
                         st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected backend processing anomaly occurred. Details: {str(e)}")
 
@@ -318,47 +317,44 @@ if st.session_state.stage == 1:
 
     if st.session_state.brand_profile:
         st.markdown("### 📝 Refine Brand Understanding Rulesets")
-        st.caption("Double-click individual cells to add custom items, clear rows, or correct terms before cementing absolute rules.")
+        st.caption("Expand the options below to add custom items, clear rows, or correct terms before cementing absolute rules.")
         
         edited_profile = {}
         
-        # Row 1: Brand & Protected Core
+        # Row 1: Brand & Protected Core wrapped in toggles
         row1_col1, row1_col2 = st.columns(2)
         with row1_col1:
-            st.markdown("#### ✨ Allowed Brand Variants & Misspellings")
-            df_bv = pd.DataFrame(st.session_state.brand_profile.get("brand_variants", []), columns=["Brand Variants"])
-            ed_bv = st.data_editor(df_bv, num_rows="dynamic", use_container_width=True, key="editor_bv")
-            edited_profile["brand_variants"] = ed_bv["Brand Variants"].dropna().tolist()
+            with st.expander("✨ View/Edit Allowed Brand Variants & Misspellings", expanded=False):
+                df_bv = pd.DataFrame(st.session_state.brand_profile.get("brand_variants", []), columns=["Brand Variants"])
+                ed_bv = st.data_editor(df_bv, num_rows="dynamic", use_container_width=True, key="editor_bv")
+                edited_profile["brand_variants"] = ed_bv["Brand Variants"].dropna().tolist()
             
         with row1_col2:
-            st.markdown("#### 🛡️ Protected Core Offering Terms (Safety Shield)")
-            df_prot = pd.DataFrame(st.session_state.brand_profile.get("protected_terms", []), columns=["Protected Core Terms"])
-            ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True, key="editor_prot")
-            edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
+            with st.expander("🛡️ View/Edit Protected Core Offering Terms (Safety Shield)", expanded=False):
+                df_prot = pd.DataFrame(st.session_state.brand_profile.get("protected_terms", []), columns=["Protected Core Terms"])
+                ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True, key="editor_prot")
+                edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
             
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Row 2: Competitors & Irrelevant Concepts
+        # Row 2: Competitors & Irrelevant Concepts wrapped in toggles
         row2_col1, row2_col2 = st.columns(2)
         with row2_col1:
-            st.markdown("#### 🚨 Competitor Target Brand Names (Red Flags)")
-            df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
-            ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True, key="editor_comp")
-            edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
+            with st.expander("🚨 View/Edit Competitor Target Brand Names (Red Flags)", expanded=False):
+                df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
+                ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True, key="editor_comp")
+                edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
         with row2_col2:
-            st.markdown("#### ❌ Clear Irrelevant Elements & Concepts")
-            df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
-            ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True, key="editor_irr")
-            edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
+            with st.expander("❌ View/Edit Clear Irrelevant Elements & Concepts", expanded=False):
+                df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
+                ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True, key="editor_irr")
+                edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
             
-        st.markdown("<br>", unsafe_allow_html=True)
 
-        # 🌐 Row 3: 5th Box - Allowed Languages Matrix
-        st.markdown("#### 🌐 Allowed Target Languages & Regions")
-        default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
-        df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
-        ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
-        edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
+        # 🌐 Row 3: 5th Box - Allowed Languages Matrix wrapped in toggle
+        with st.expander("🌐 View/Edit Allowed Target Languages & Regions", expanded=False):
+            default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
+            df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
+            ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
+            edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
             
         st.markdown("---")
         
