@@ -154,6 +154,8 @@ with nav_cols[0]:
                 del st.session_state.temp_brand_name
             if "temp_campaign_type" in st.session_state:
                 del st.session_state.temp_campaign_type
+            if "temp_ad_group_name" in st.session_state:
+                del st.session_state.temp_ad_group_name
             if "temp_core_offering" in st.session_state:
                 del st.session_state.temp_core_offering
             if "cache_key" in st.session_state:
@@ -227,11 +229,11 @@ if st.session_state.stage == 1:
                 if len(cache_parts) == 3:
                     st.session_state.temp_brand_name = cache_parts[0]
                     st.session_state.temp_campaign_type = cache_parts[1]
-                    st.session_state.temp_core_offering = cache_parts[2]
+                    st.session_state.temp_ad_group_name = cache_parts[2]
                 else:
                     st.session_state.temp_brand_name = cache_parts[0]
                     st.session_state.temp_campaign_type = "Search"
-                    st.session_state.temp_core_offering = cache_parts[1] if len(cache_parts) > 1 else ""
+                    st.session_state.temp_ad_group_name = cache_parts[1] if len(cache_parts) > 1 else ""
                     
                 st.session_state.locked_rules = st.session_state.brand_profile
                 st.session_state.cache_key = selected_cache
@@ -245,13 +247,17 @@ if st.session_state.stage == 1:
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
             
-        col1, col2, col3 = st.columns(3)
-        with col1:
+        row1_left, row1_right = st.columns(2)
+        with row1_left:
             brand_name = st.text_input("Brand Name", value="")
-        with col2:
+        with row1_right:
             campaign_type = st.selectbox("Campaign Type", options=["-Please Select-", "Search", "PMax", "Display", "Shopping"])
-        with col3:
-            core_offering = st.text_input("Core Offering of the Ad Group", value="")
+            
+        row2_left, row2_right = st.columns(2)
+        with row2_left:
+            ad_group_name = st.text_input("Ad Group Name", value="", placeholder="e.g., Competitor_Conversions_USA")
+        with row2_right:
+            core_offering = st.text_input("Core Offering of the Ad Group", value="", placeholder="What is this ad group selling? (Used for AI Context)")
             
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line)", 
@@ -260,7 +266,7 @@ if st.session_state.stage == 1:
         )
         
         if st.button("Launch Brand Understanding Audit"):
-            if not brand_name or campaign_type == "-Please Select-" or not core_offering or not landing_pages:
+            if not brand_name or campaign_type == "-Please Select-" or not ad_group_name or not core_offering or not landing_pages:
                 st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required input fields were left blank or unselected.")
             else:
                 progress_bar = st.progress(0)
@@ -277,6 +283,7 @@ if st.session_state.stage == 1:
                     st.session_state.brand_profile = raw_profile
                     st.session_state.temp_brand_name = brand_name
                     st.session_state.temp_campaign_type = campaign_type
+                    st.session_state.temp_ad_group_name = ad_group_name
                     st.session_state.temp_core_offering = core_offering
                     progress_bar.progress(100)
                     
@@ -346,9 +353,9 @@ if st.session_state.stage == 1:
         if st.button("Confirm and Update Brand Knowledge Base", type="primary"):
             b_title = st.session_state.get("temp_brand_name", "Brand").strip()
             t_title = st.session_state.get("temp_campaign_type", "Search").strip()
-            c_title = st.session_state.get("temp_core_offering", "Offering").strip()
+            a_title = st.session_state.get("temp_ad_group_name", "AdGroup").strip()
             
-            cache_key = f"{b_title} | {t_title} | {c_title}"
+            cache_key = f"{b_title} | {t_title} | {a_title}"
             save_profile_to_cache(cache_key, edited_profile)
             
             st.session_state.locked_rules = edited_profile
