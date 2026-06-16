@@ -182,14 +182,14 @@ if st.session_state.stage == 1:
     # 1. Fetch raw cache entries from sheet rows
     cache_options = get_cached_profiles()
     
-    # 2. Parse out isolated, unique portfolio brand tokens
+    # 2. Parse out isolated, unique portfolio brand tokens cleanly without matching anchor strings
     unique_brands = set()
     for option in cache_options:
-        if option != "Create New":
+        if option not in ["-Create New-", "Create New"]:
             parts = option.split(" | ")
             unique_brands.add(parts[0].strip())
             
-    brand_list = ["Create New"] + sorted(list(unique_brands), key=str.lower)
+    brand_list = ["-Create New-"] + sorted(list(unique_brands), key=str.lower)
     
     # --- CASCADING INTERFACE BLOCKS ---
     col_b1, col_b2 = st.columns(2)
@@ -197,10 +197,10 @@ if st.session_state.stage == 1:
     with col_b1:
         selected_brand_tier = st.selectbox("🏢 Select Brand Portfolio", options=brand_list, index=0)
         
-    selected_cache = "Create New"
+    selected_cache = "-Create New-"
     
     with col_b2:
-        if selected_brand_tier != "Create New":
+        if selected_brand_tier != "-Create New-":
             # Extract sub-components matching chosen brand portfolio
             matching_workspaces = []
             for option in cache_options:
@@ -231,7 +231,7 @@ if st.session_state.stage == 1:
         st.session_state.brand_profile = None
         st.session_state.locked_rules = None
 
-    elif selected_cache != "Create New":
+    elif selected_cache != "-Create New-":
         if st.session_state.brand_profile is None or st.session_state.get('cache_key') != selected_cache:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
@@ -254,7 +254,7 @@ if st.session_state.stage == 1:
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
     else:
-        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') not in ["Create New", "-Please Select-"]:
+        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') not in ["-Create New-", "-Please Select-"]:
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
             
