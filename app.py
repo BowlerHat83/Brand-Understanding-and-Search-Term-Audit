@@ -208,19 +208,31 @@ if st.session_state.stage == 1:
                     workspace_suffix = option.replace(f"{selected_brand_tier} | ", "").strip()
                     matching_workspaces.append(workspace_suffix)
             
+            # Inject a mandatory "Please Select" anchor option
+            workspace_options = ["-Please Select-"] + sorted(matching_workspaces, key=str.lower)
+            
             selected_workspace_tier = st.selectbox(
                 "🎯 Select Active Campaign / Ad Group Workspace", 
-                options=sorted(matching_workspaces, key=str.lower)
+                options=workspace_options,
+                index=0
             )
             
-            if selected_workspace_tier:
+            if selected_workspace_tier and selected_workspace_tier != "-Please Select-":
                 selected_cache = f"{selected_brand_tier} | {selected_workspace_tier}"
+            else:
+                selected_cache = "-Please Select-"
         else:
             st.selectbox("🎯 Select Active Campaign Workspace", options=["N/A - Creating New Brand Profile"], disabled=True)
     
     st.markdown("---")
     
-    if selected_cache != "Create New":
+    if selected_cache == "-Please Select-":
+        st.info("ℹ️ Please select a specific Campaign / Ad Group Workspace from the dropdown menu above to load its profile parameters.")
+        # Reset state so old configurations don't linger visible below
+        st.session_state.brand_profile = None
+        st.session_state.locked_rules = None
+
+    elif selected_cache != "Create New":
         if st.session_state.brand_profile is None or st.session_state.get('cache_key') != selected_cache:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
@@ -243,7 +255,7 @@ if st.session_state.stage == 1:
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
     else:
-        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') != "Create New":
+        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') not in ["Create New", "-Please Select-"]:
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
             
