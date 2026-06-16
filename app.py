@@ -143,7 +143,6 @@ st.write("Google Ads Classification System built on an expanding Brand Knowledge
 nav_cols = st.columns([1, 4, 1])
 
 with nav_cols[0]:
-    # Disable back button navigation while processing to maintain state integrity
     if st.session_state.stage > 1:
         if st.button("⬅️ Back to Stage 1", use_container_width=True, disabled=st.session_state.audit_running):
             st.session_state.stage = 1
@@ -178,11 +177,49 @@ st.write(f"Key exists in secrets: {'GEMINI_API_KEY' in st.secrets}")
 if st.session_state.stage == 1:
     st.header("Stage 1: Brand Understanding Audit")
     
+    # 1. Fetch raw cache entries from sheet rows
     cache_options = get_cached_profiles()
-    selected_cache = st.selectbox("Select a Profile Configuration Template", options=cache_options, index=0)
+    
+    # 2. Parse out isolated, unique portfolio brand tokens
+    unique_brands = set()
+    for option in cache_options:
+        if option != "Create New":
+            parts = option.split(" | ")
+            unique_brands.add(parts[0].strip())
+            
+    brand_list = ["Create New"] + sorted(list(unique_brands), key=str.lower)
+    
+    # --- CASCADING INTERFACE BLOCKS ---
+    col_b1, col_b2 = st.columns(2)
+    
+    with col_b1:
+        selected_brand_tier = st.selectbox("🏢 Select Brand Portfolio", options=brand_list, index=0)
+        
+    selected_cache = "Create New"
+    
+    with col_b2:
+        if selected_brand_tier != "Create New":
+            # Extract sub-components matching chosen brand portfolio
+            matching_workspaces = []
+            for option in cache_options:
+                if option.startswith(f"{selected_brand_tier} | "):
+                    workspace_suffix = option.replace(f"{selected_brand_tier} | ", "").strip()
+                    matching_workspaces.append(workspace_suffix)
+            
+            selected_workspace_tier = st.selectbox(
+                "🎯 Select Active Campaign / Ad Group Workspace", 
+                options=sorted(matching_workspaces, key=str.lower)
+            )
+            
+            if selected_workspace_tier:
+                selected_cache = f"{selected_brand_tier} | {selected_workspace_tier}"
+        else:
+            st.selectbox("🎯 Select Active Campaign Workspace", options=["N/A - Creating New Brand Profile"], disabled=True)
+    
+    st.markdown("---")
     
     if selected_cache != "Create New":
-        if st.session_state.brand_profile is None:
+        if st.session_state.brand_profile is None or st.session_state.get('cache_key') != selected_cache:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
                 
@@ -204,8 +241,9 @@ if st.session_state.stage == 1:
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
     else:
-        if st.session_state.get('last_selected_cache') != "Create New" and 'last_selected_cache' in st.session_state:
+        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') != "Create New":
             st.session_state.brand_profile = None
+            st.session_state.locked_rules = None
             
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -325,7 +363,6 @@ if st.session_state.stage == 1:
 elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     
-    # Block file adjustments while calculations are actively happening
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"], disabled=st.session_state.audit_running)
     
     BATCH_SIZE = 250
@@ -355,7 +392,6 @@ elif st.session_state.stage == 2:
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
-    # Dynamic button context changes text and locks immediately when running switches to True
     button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
     
     if st.button(button_text, type="secondary", use_container_width=True, disabled=st.session_state.audit_running):
@@ -365,7 +401,6 @@ elif st.session_state.stage == 2:
             st.session_state.audit_running = True
             st.rerun()
 
-    # Split processing runtime zone
     if st.session_state.audit_running:
         with st.spinner("⏳ Running Search Terms Audit Engine... Please do not close or refresh this tab."):
             try:
@@ -514,13 +549,11 @@ elif st.session_state.stage == 2:
                     "roots": root_negatives_payload,
                     "copy_paste_list": final_negatives_output
                 }
-                # Unlatch UI runtime lock configuration variables
                 st.session_state.audit_running = False
                 st.success("Analysis matrix generated.")
                 st.rerun()
                 
             except Exception as main_err:
-                # Release execution lock parameters on backend failures to prevent locked UI
                 st.session_state.audit_running = False
                 st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCore ledger computation failed on analysis layout execution: {str(main_err)}")
 
