@@ -31,6 +31,7 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
     """
     
     try:
+        # Crucial Fix: Explicitly passing a generous timeout inside the HTTP config layer
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -41,10 +42,15 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
                 ),
                 response_mime_type="application/json",
                 response_schema=BrandProfile,
-                temperature=0.1
+                temperature=0.1,
+                # Force the underlying connection to stay open for up to 90 seconds
+                http_options={"timeout": 90.0} 
             )
         )
         
+        if not response or not response.text:
+            raise ValueError("The Gemini API returned an empty response string.")
+
         # Strip potential markdown blocks (```json ... ```) to prevent Pydantic parsing crashes
         clean_text = response.text.strip()
         if clean_text.startswith("```"):
@@ -55,4 +61,5 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
         
     except Exception as e:
         # Wrap up backend exceptions to re-throw clearly to the main app wrapper
-        raise RuntimeError(f"Gemini processing failure: {str(e)}")
+        raise RuntimeError(f"Gemini processing failure (Timeout/Drop Protection Active): {str(e)}")
+        
