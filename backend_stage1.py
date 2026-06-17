@@ -19,7 +19,13 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
     """
     # Securely retrieve the upgraded token directly from Streamlit secrets
     api_key = st.secrets.get("GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
+    
+    # FIX: Initialize the client with global client-side configuration parameters
+    # This prevents generation-level payload validation issues while establishing a solid timeout foundation.
+    client = genai.Client(
+        api_key=api_key,
+        http_options={"timeout": 90.0}
+    )
     
     prompt = f"""
     Analyze the following brand context for a Google Ads account:
@@ -31,7 +37,6 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
     """
     
     try:
-        # Crucial Fix: Explicitly passing a generous timeout inside the HTTP config layer
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -42,9 +47,7 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
                 ),
                 response_mime_type="application/json",
                 response_schema=BrandProfile,
-                temperature=0.1,
-                # Force the underlying connection to stay open for up to 90 seconds
-                http_options={"timeout": 90.0} 
+                temperature=0.1
             )
         )
         
@@ -61,5 +64,4 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
         
     except Exception as e:
         # Wrap up backend exceptions to re-throw clearly to the main app wrapper
-        raise RuntimeError(f"Gemini processing failure (Timeout/Drop Protection Active): {str(e)}")
-        
+        raise RuntimeError(f"Gemini processing failure (Instant Connection Failure Check): {str(e)}")
