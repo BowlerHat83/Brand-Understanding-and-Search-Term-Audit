@@ -54,8 +54,9 @@ def safe_split_cell(cell_value):
     clean_value = str(cell_value).strip("[]\"'")
     return [item.strip() for item in clean_value.split(",") if item.strip()]
 
+@st.cache_data(ttl=60)
 def get_cached_profiles():
-    """Pulls all available brand profile names from the Google Sheet rows."""
+    """Pulls all available brand profile names from the Google Sheet rows. Cached for 60 seconds."""
     try:
         gc = get_gspread_client()
         sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
@@ -66,8 +67,9 @@ def get_cached_profiles():
     except Exception:
         return ["-Create New-"]
 
+@st.cache_data(ttl=60)
 def load_cached_profile(profile_name):
-    """Finds the matching row, safely handling human-edited text formatting."""
+    """Finds the matching row, safely handling human-edited text formatting. Cached for 60 seconds."""
     try:
         gc = get_gspread_client()
         sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
@@ -177,7 +179,7 @@ st.markdown("---")
 if st.session_state.stage == 1:
     st.header("Stage 1: Brand Understanding Audit")
     
-    # 1. Fetch raw cache entries from sheet rows
+    # 1. Fetch raw cache entries from sheet rows (Leveraging Cache Layer)
     cache_options = get_cached_profiles()
     
     # 2. Parse out isolated, unique portfolio brand tokens cleanly without matching anchor strings
@@ -363,6 +365,9 @@ if st.session_state.stage == 1:
             
             cache_key = f"{b_title} | {t_title} | {a_title}"
             save_profile_to_cache(cache_key, edited_profile)
+            
+            # Clear memory cache so the drop-down elements refresh cleanly immediately on next load
+            st.cache_data.clear()
             
             st.session_state.locked_rules = edited_profile
             st.session_state.cache_key = cache_key
@@ -643,12 +648,5 @@ if st.session_state.audit_results:
                     direct_url = push_to_google_sheets(st.session_state.cache_key, payload)
                     st.success("Google Sheets Asset generated successfully!")
                     st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
-                except Exception as e:
-                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCloud ledger synchronization pipeline interrupted: {str(e)}")
-                    
-        if st.button("🔄 Start New Audit", use_container_width=True):
-            st.session_state.stage = 1
-            st.session_state.brand_profile = None
-            st.session_state.locked_rules = None
-            st.session_state.audit_results = None
-            st.rerun()
+                except Exception as sheet_err:
+                    st.error(f"Workbook sync failed: {str(sheet_err)}")
