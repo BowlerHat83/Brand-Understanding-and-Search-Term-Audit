@@ -5,8 +5,6 @@ from pydantic import BaseModel, Field
 from typing import List
 import google.genai as genai
 from google.genai import types
-# Import the explicit synchronous HTTP transport layer to prevent gateway drops
-from google.genai._http_client import HttpClient
 
 # Define the structured output format for the brand profile
 class BrandProfile(BaseModel):
@@ -18,20 +16,20 @@ class BrandProfile(BaseModel):
 def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> dict:
     """
     Analyzes brand positioning and returns a structured profile ruleset.
-    Patched with explicit synchronous HTTP client overrides to prevent Error 004 gateway drops.
+    Hardened against Streamlit infrastructure timeouts using clean, native SDK options.
     """
     # Securely retrieve the token directly from Streamlit secrets
     api_key = st.secrets.get("GEMINI_API_KEY")
     
-    # HARD PATCH: Force the genai client to run over a strict, standard synchronous
-    # HTTP transport mechanism rather than allowing it to pick up erratic environment-dependent loops.
-    sync_http_client = HttpClient(
+    # HARD PATCH: Use standard, explicit HttpOptions. 
+    # Bumping the timeout down to 30 seconds ensures our application breaks out and throws 
+    # a proper Python exception BEFORE Streamlit's proxy server loses patience and drops the connection.
+    client = genai.Client(
         api_key=api_key,
-        http_options=types.HttpOptions(timeout=45000) # Dropped to 45s to cleanly clear Streamlit boundaries
+        http_options=types.HttpOptions(
+            timeout=30000  # 30 seconds max execution limit
+        )
     )
-    
-    # Pass our explicitly configured transport engine into the main client wrapper
-    client = genai.Client(api_key=api_key, _http_client=sync_http_client)
     
     prompt = f"""
     Analyze the following brand context for a Google Ads account:
