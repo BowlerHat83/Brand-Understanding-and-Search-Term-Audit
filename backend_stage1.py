@@ -16,14 +16,15 @@ class BrandProfile(BaseModel):
 def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> dict:
     """
     Analyzes brand positioning and returns a structured profile ruleset.
+    Optimized for stable structural mapping alongside the new app cache layer.
     """
     # Securely retrieve the upgraded token directly from Streamlit secrets
     api_key = st.secrets.get("GEMINI_API_KEY")
     
-    # Restored to the clean global client with the working milliseconds timeout fix
+    # Client initialized with a crisp 60-second limit to fit within Streamlit's web window
     client = genai.Client(
         api_key=api_key,
-        http_options=types.HttpOptions(timeout=90000)
+        http_options=types.HttpOptions(timeout=60000)
     )
     
     prompt = f"""
@@ -36,7 +37,7 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
     """
     
     try:
-        # Restored your original high-quality Pydantic schema generation configuration
+        # High-quality structural evaluation execution using the defined Pydantic blueprint
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -54,7 +55,7 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
         if not response or not response.text:
             raise ValueError("The Gemini API returned an empty response string.")
 
-        # Strip potential markdown blocks (```json ... ```) to prevent Pydantic parsing crashes
+        # Clean markdown wrappers out of the string context safely
         clean_text = response.text.strip()
         if clean_text.startswith("```"):
             clean_text = re.sub(r"^```json\s*|\s*```$", "", clean_text, flags=re.MULTILINE).strip()
@@ -63,5 +64,5 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_page: str) -> d
         return BrandProfile.model_validate_json(clean_text).model_dump()
         
     except Exception as e:
-        # Removed the silent fallback. If it breaks, we want to see the exact error message text.
+        # Raising raw error text explicitly back up to the frontend UI blocks
         raise RuntimeError(f"Gemini processing failure: {str(e)}")
