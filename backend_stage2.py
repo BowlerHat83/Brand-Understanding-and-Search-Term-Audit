@@ -1,10 +1,10 @@
 import json
 import re
 from collections import Counter
-# Assuming you are using the official google-genai SDK or google-generativeai. 
-# Adjust this import based on your exact backend configuration (e.g., import google.generativeai as genai)
-import google.generativeai as genai
 import streamlit as st
+# Using the modern, unified Google GenAI SDK
+from google import genai
+from google.genai import types
 
 def classify_terms_batch(search_terms, brand_profile):
     """
@@ -48,31 +48,33 @@ def classify_terms_batch(search_terms, brand_profile):
     """
 
     try:
-        # Configuration setup using your active project configurations
-        # using the generic gemini-2.5-flash model as the standard batch processing engine
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1  # Set ultra-low to keep decisions logical and deterministic
-            },
-            system_instruction=system_instruction
+        # Modern SDK initialization pattern (Automatically pulls GEMINI_API_KEY from environment variables)
+        client = genai.Client()
+        
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt_payload,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1,  # Ultra-low temperature keeps decisions structural and predictable
+                response_mime_type="application/json"
+            )
         )
         
-        response = model.generate_content(prompt_payload)
+        # Strip any accidental wrapping artifacts safely
         cleaned_response = response.text.strip().strip("`").replace("json\n", "")
         results = json.loads(cleaned_response)
         return results
 
     except Exception as e:
-        # Structural fallback matrix block if the API call encounters a connection or encoding drop
+        # Structural fallback matrix block if the API call encounters an issue
         fallback_results = []
         for term in search_terms:
             fallback_results.append({
                 "search_term": term,
                 "classification": "review",
                 "confidence": 0.00,
-                "reason": f"System backend processing exception fallback routing: {str(e)}"
+                "reason": f"System backend modern SDK exception fallback routing: {str(e)}"
             })
         return fallback_results
 
