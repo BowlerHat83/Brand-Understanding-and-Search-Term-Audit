@@ -1,129 +1,122 @@
-import re
 import json
-import time
+import re
+from collections import Counter
+# Assuming you are using the official google-genai SDK or google-generativeai. 
+# Adjust this import based on your exact backend configuration (e.g., import google.generativeai as genai)
+import google.generativeai as genai
 import streamlit as st
-import google.genai as genai
-from google.genai import types
-from typing import List
 
-def classify_terms_batch(terms_batch: List[str], locked_rules: dict) -> List[dict]:
+def classify_terms_batch(search_terms, brand_profile):
     """
-    ⚡ LINEAR BATCH MATRIX ENGINE: Optimized for custom batch windows (e.g., 250 rows).
-    Uses high-speed plain text streaming to bypass structural parsing errors.
-    """
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
-    
-    formatted_input = "\n".join([f"{idx}|{term}" for idx, term in enumerate(terms_batch)])
-    
-    prompt = f"""
-    Evaluate these exact PPC search queries:
-    {formatted_input}
-    
-    Against these absolute campaign match guidelines:
-    - Allowed Brand Variants/Misspellings: {locked_rules.get('brand_variants', [])}
-    - Competitor Target Brand Names (Red Flags): {locked_rules.get('competitors', [])}
-    - Protected Core Offering Terms: {locked_rules.get('protected_terms', [])}
-    - Clear Irrelevant Elements/Concepts: {locked_rules.get('irrelevant_terms', [])}
+    Evaluates a batch of search terms against the Stage 1 ruleset.
+    Enforces a strict standard of proof to prevent false-positive relevancy flags.
     """
     
-    system_prompt = (
-        "You are an elite, deterministic Google Ads keyword filtering machine.\n"
-        "Process every single query inside the input list accurately.\n"
-        "Classify each query into exactly one of these categories: 'relevant', 'irrelevant', or 'review'.\n\n"
-        "CRITICAL OUTPUT FORMAT:\n"
-        "Return your response ONLY as a plain text list using a pipe character (|) delimiter. "
-        "Do not use markdown code blocks (no ```json or ```text). Do not include a header row.\n"
-        "Format exactly like this:\n"
-        "index|classification|confidence|micro_reason\n\n"
-        "Rules:\n"
-        "- index: must match the incoming integer index exactly\n"
-        "- classification: must be exactly 'relevant', 'irrelevant', or 'review'\n"
-        "- confidence: decimal score between 0.00 and 1.00\n"
-        "- micro_reason: strictly 5 words or less detailing the logical rule match\n\n"
-        "You must output exactly one line for every single item in the input list. Do not omit any row."
+    # Define hyper-strict system instructions to reset the AI's cognitive bias
+    system_instruction = (
+        "You are an elite, hyper-conservative Google Ads search query auditor. Your job is to classify raw search terms "
+        "into 'relevant', 'irrelevant', or 'review' based STRICTLY on the provided Brand Profile parameters.\n\n"
+        "CRITICAL CLASSIFICATION ENGINE RULES:\n"
+        "1. RELEVANT (Strict commercial fit only):\n"
+        "   - The search query must show clear, unambiguous commercial intent to purchase, source, or hire the EXACT core offering.\n"
+        "   - It must NOT contain any elements from competitors, foreign scripts, or irrelevant concepts.\n"
+        "   - If it is merely a partial match or an industry-adjacent category, do NOT mark it relevant.\n\n"
+        "2. REVIEW (Ambiguous modifiers / Educational intent):\n"
+        "   - Use 'review' for terms that contain a core offering keyword but are surrounded by transactional or informational modifiers "
+        "     where user intent is muddy or split (e.g., 'X framework diagram', 'how does X software work', 'free version of X').\n"
+        "   - When a query is borderline or you are in doubt, default to 'review'. Do not wave it through to relevant.\n\n"
+        "3. IRRELEVANT (Budget drain blocklist):\n"
+        "   - Mark 'irrelevant' if the search term contains any competitor brand names or completely unrelated industry concepts.\n"
+        "   - Mark 'irrelevant' if it reflects zero intent to buy (e.g., job searches, salaries, logins, portals, wikipedia lookups, DIY projects).\n\n"
+        "OUTPUT FORMAT REQUIREMENT:\n"
+        "You must return a valid JSON array of objects matching the input array order perfectly. Do not include markdown blocks like ```json. "
+        "Each object must contain EXACTLY these keys:\n"
+        '{"search_term": "string", "classification": "relevant"|"irrelevant"|"review", "confidence": float_between_0_1, "reason": "string explanation"}'
     )
-    
-    max_retries = 4
-    initial_delay = 3.0
-    
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.0
-                )
-            )
-            
-            raw_text = response.text.strip()
-            parsed_results = []
-            
-            lines = raw_text.split('\n')
-            for line in lines:
-                line = line.strip().replace('`', '')
-                if not line or '|' not in line:
-                    continue
-                    
-                parts = line.split('|')
-                if len(parts) >= 3:
-                    try:
-                        idx_val = int(parts[0].strip())
-                        classification = parts[1].strip().lower()
-                        confidence = float(parts[2].strip())
-                        reason = parts[3].strip() if len(parts) > 3 else "evaluated match context"
-                        
-                        if classification not in ["relevant", "irrelevant", "review"]:
-                            classification = "review"
-                            
-                        parsed_results.append({
-                            "search_term": terms_batch[idx_val] if idx_val < len(terms_batch) else parts[0],
-                            "classification": classification,
-                            "confidence": confidence,
-                            "reason": reason[:40]
-                        })
-                    except:
-                        continue
-            
-            if len(parsed_results) < (len(terms_batch) * 0.7):
-                raise ValueError("Incomplete text matrix returned from API.")
-                
-            # Introducing a strategic 1-second delay between 250-row chunks 
-            # to let Google's rate-limiter clear out completely.
-            time.sleep(1.0)
-            return parsed_results
-            
-        except Exception as e:
-            err_str = str(e).lower()
-            if "503" in err_str or "unavailable" in err_str or "429" in err_str or "capacity" in err_str:
-                if attempt < max_retries - 1:
-                    time.sleep(initial_delay * (2 ** attempt))
-                    continue  
-            raise RuntimeError(f"Engine failure on parsing parameters: {str(e)}")
 
-def extract_root_negatives(irrelevant_terms: List[str], saved_terms: List[str], protected_terms: List[str] = None) -> dict:
-    word_counts = {}
+    # Format the prompt payload with the dynamic Stage 1 constraints
+    prompt_payload = f"""
+    [BRAND PROFILE ENVIRONMENT PARAMETERS]:
+    - Allowed Brand Variants: {", ".join(brand_profile.get("brand_variants", []))}
+    - Protected Core Offering Terms: {", ".join(brand_profile.get("protected_terms", []))}
+    - Known Competitors (Red Flags): {", ".join(brand_profile.get("competitors", []))}
+    - Explicitly Irrelevant Concepts: {", ".join(brand_profile.get("irrelevant_terms", []))}
+    - Target Allowed Languages: {", ".join(brand_profile.get("allowed_languages", ["English"]))}
+
+    [INPUT ARRAY TO EVALUATE]:
+    {json.dumps(search_terms)}
+    """
+
+    try:
+        # Configuration setup using your active project configurations
+        # using the generic gemini-2.5-flash model as the standard batch processing engine
+        model = genai.GenerativeModel(
+            model_name="gemini-2.5-flash",
+            generation_config={
+                "response_mime_type": "application/json",
+                "temperature": 0.1  # Set ultra-low to keep decisions logical and deterministic
+            },
+            system_instruction=system_instruction
+        )
+        
+        response = model.generate_content(prompt_payload)
+        cleaned_response = response.text.strip().strip("`").replace("json\n", "")
+        results = json.loads(cleaned_response)
+        return results
+
+    except Exception as e:
+        # Structural fallback matrix block if the API call encounters a connection or encoding drop
+        fallback_results = []
+        for term in search_terms:
+            fallback_results.append({
+                "search_term": term,
+                "classification": "review",
+                "confidence": 0.00,
+                "reason": f"System backend processing exception fallback routing: {str(e)}"
+            })
+        return fallback_results
+
+
+def extract_root_negatives(irrelevant_phrases, saved_phrases, protected_terms):
+    """
+    Identifies high-frequency root words from junk search terms that do not leak into 
+    saved or protected target parameters.
+    """
+    # Clean and tokenize protected phrases to prevent catastrophic brand damage
     protected_tokens = set()
-    for term in saved_terms:
-        for word in re.findall(r'\b\w+\b', str(term).lower()):
-            protected_tokens.add(word)
-    if protected_terms:
-        for term in protected_terms:
-            for word in re.findall(r'\b\w+\b', str(term).lower()):
-                protected_tokens.add(word)
-    for term in irrelevant_terms:
-        words_in_phrase = set(re.findall(r'\b\w+\b', str(term).lower()))
-        for word in words_in_phrase:
-            if word not in protected_tokens and not word.isdigit() and len(word) > 2:
-                word_counts[word] = word_counts.get(word, 0) + 1
-    return dict(sorted({k: v for k, v in word_counts.items() if v >= 2}.items(), key=lambda item: item[1], reverse=True))
+    for phrase in (saved_phrases + protected_terms):
+        words = re.findall(r'\b\w+\b', str(phrase).lower())
+        protected_tokens.update(words)
 
-def apply_ads_notation(term: str, is_exact: bool = False) -> str:
-    cleaned = str(term).strip().lower()
-    if not cleaned: 
-        return ""
+    # Count word frequencies inside confirmed irrelevant queries
+    junk_word_counter = Counter()
+    for phrase in irrelevant_phrases:
+        words = re.findall(r'\b\w+\b', str(phrase).lower())
+        # Strip simple numbers and ultra-short connector filler terms
+        clean_words = [w for w in words if len(w) > 2 and not w.isdigit()]
+        junk_word_counter.update(clean_words)
+
+    # Filter out anything matching your safety shield token list
+    extracted_roots = {}
+    for word, count in junk_word_counter.items():
+        if word not in protected_tokens and count >= 2:  # Must appear at least twice to qualify as a trend
+            extracted_roots[word] = count
+
+    # Sort root words descending by their frequency volume weight
+    return dict(sorted(extracted_roots.items(), key=lambda item: item[1], reverse=True))
+
+
+def apply_ads_notation(keyword, is_exact=False):
+    """
+    Transforms raw text phrases into valid Google Ads Keyword Syntax styles.
+    """
+    clean_keyword = str(keyword).strip().lower()
+    
+    # Strip existing syntax wrappers if present to prevent double notation errors
+    clean_keyword = clean_keyword.strip("[]\"'")
+    
     if is_exact:
-        return f"[{cleaned}]"
-    return f'"{cleaned}"' if len(cleaned.split()) >= 2 else cleaned
+        return f"[{clean_keyword}]"
+    else:
+        # Defaults to Phrase Match formatting which maps cleanly to root-exclusion lists
+        return f'"{clean_keyword}"'
