@@ -361,8 +361,8 @@ if st.session_state.stage == 1:
         # 📥 NEW: BULK KNOWLEDGE ROUTER PLAYGROUND
         # ==========================================
         st.markdown("---")
-        st.subheader("💡 Bulk Knowledge Router Playground")
-        st.caption("Paste any raw performance data, past leaks, or historical negatives from Google Ads below. The AI will instantly classify and stream them straight into the correct boxes above.")
+        st.subheader("💡 Trial: Bulk Knowledge Router Playground")
+        st.caption("Ignore for Now. Potentially a future feature.")
         
         bulk_input = st.text_area(
             "Paste bulk terms here (One phrase per line):",
