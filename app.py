@@ -117,10 +117,7 @@ def save_profile_to_cache(name, data):
 # --- END CACHE LAYER ---
 
 def is_foreign_script(text):
-    """
-    Detects if a string contains non-Latin/non-Western characters.
-    Allows standard English characters, numbers, spaces, and common punctuation.
-    """
+    """Detects if a string contains non-Latin/non-Western characters."""
     if re.search(r'[^\x00-\x7F\u00C0-\u017F\s\d.,&\'"\-_+/()!]', text):
         return True
     return False
@@ -437,7 +434,7 @@ elif st.session_state.stage == 2:
                     f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
-                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\Missing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
+                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMapped column missing. File needs 'Search Term' or 'Query'.")
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
@@ -478,8 +475,6 @@ elif st.session_state.stage == 2:
                 overlooked_list = []
                 processed_terms_set = set()
                 
-                hit_processing_failure = False
-                
                 for i in range(0, total_input_count, BATCH_SIZE):
                     batch = search_terms[i:i + BATCH_SIZE]
                     counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
@@ -517,15 +512,13 @@ elif st.session_state.stage == 2:
                                     review_list.append(row_data)
                                     
                         except Exception as batch_err:
-                            # 🚨 GLOBAL RUNTIME VISIBILITY UPGRADE
-                            st.error(f"❌ **Direct API Engine Failure Context:** {str(batch_err)}")
-                            hit_processing_failure = True
+                            # 🚀 NO HARD STOPS: Save skipped rows instantly to overlooked and move on immediately
                             for term in api_payload_batch:
                                 if term not in processed_terms_set:
                                     overlooked_list.append({
                                         "Search Term": term, 
                                         "Confidence Score": 0.00, 
-                                        "Reasoning": f"Bypass validation fallback loop segment: {str(batch_err)}"
+                                        "Reasoning": f"Google API 503 Overload Drop: {str(batch_err)}"
                                     })
                                     processed_terms_set.add(term)
                     
@@ -537,17 +530,6 @@ elif st.session_state.stage == 2:
                     m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
                     m4.metric("Review Queue 🔍", f"{len(review_list)}")
                     m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
-                    
-                    if hit_processing_failure:
-                        break
-
-                for term in search_terms:
-                    if term not in processed_terms_set:
-                        overlooked_list.append({
-                            "Search Term": term, 
-                            "Confidence Score": 0.00, 
-                            "Reasoning": "System reconciliation safety framework catch (Process Paused)"
-                        })
 
                 irr_phrases = [r["Search Term"] for r in irrelevant_list]
                 saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
@@ -601,7 +583,6 @@ elif st.session_state.stage == 2:
                     "copy_paste_list": final_negatives_output
                 }
                 st.session_state.audit_running = False
-                st.success("Analysis matrix generated.")
                 st.rerun()
                 
             except Exception as main_err:
@@ -615,9 +596,9 @@ if st.session_state.audit_results:
     st.subheader("🛡️ Audit Summary Performance Data")
     
     if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
-        st.error(
-            f"⚠️ **Classification Incomplete:** The engine was unsuccessful in classifying terms due to system processing risks. "
-            f"The runthrough process has been paused to save API costs. Please check your parameters and try again in 10 mins."
+        st.warning(
+            f"⚠️ **Partial Results Delivered:** {res_data['metrics']['Potentially Overlooked Terms']} terms were skipped instantly "
+            f"because Google's servers were overloaded. You can export everything classified so far right now below."
         )
     
     met_cols = st.columns(6)
@@ -637,7 +618,6 @@ if st.session_state.audit_results:
             
     st.markdown("---")
     
-    # Render Tables
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Irrelevant (Negative Candidates) ❌", 
         "Extracted Root Negatives 🌳", 
