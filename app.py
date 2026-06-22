@@ -146,7 +146,7 @@ nav_cols = st.columns([1, 4, 1])
 
 with nav_cols[0]:
     if st.session_state.stage > 1:
-        if st.button("⬅️ Back to Stage 1", use_container_width=True, disabled=st.session_state.audit_running):
+        if st.button("⬅️ Back to Stage 1", disabled=st.session_state.audit_running):
             st.session_state.stage = 1
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
@@ -167,7 +167,7 @@ with nav_cols[0]:
 
 with nav_cols[2]:
     if st.session_state.stage == 1 and st.session_state.locked_rules is not None:
-        if st.button("Forward to Stage 2 ➡️", use_container_width=True):
+        if st.button("Forward to Stage 2 ➡️"):
             st.session_state.stage = 2
             st.rerun()
 
@@ -179,10 +179,8 @@ st.markdown("---")
 if st.session_state.stage == 1:
     st.header("Stage 1: Brand Understanding Audit")
     
-    # 1. Fetch raw cache entries from sheet rows (Leveraging Cache Layer)
     cache_options = get_cached_profiles()
     
-    # 2. Parse out isolated, unique portfolio brand tokens cleanly without matching anchor strings
     unique_brands = set()
     for option in cache_options:
         if option not in ["-Create New-", "Create New"]:
@@ -191,7 +189,6 @@ if st.session_state.stage == 1:
             
     brand_list = ["-Create New-"] + sorted(list(unique_brands), key=str.lower)
     
-    # --- CASCADING INTERFACE BLOCKS ---
     col_b1, col_b2 = st.columns(2)
     
     with col_b1:
@@ -201,14 +198,12 @@ if st.session_state.stage == 1:
     
     with col_b2:
         if selected_brand_tier != "-Create New-":
-            # Extract sub-components matching chosen brand portfolio
             matching_workspaces = []
             for option in cache_options:
                 if option.startswith(f"{selected_brand_tier} | "):
                     workspace_suffix = option.replace(f"{selected_brand_tier} | ", "").strip()
                     matching_workspaces.append(workspace_suffix)
             
-            # Inject a mandatory "Please Select" anchor option
             workspace_options = ["-Please Select-"] + sorted(matching_workspaces, key=str.lower)
             
             selected_workspace_tier = st.selectbox(
@@ -281,7 +276,6 @@ if st.session_state.stage == 1:
                 st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required input fields were left blank or unselected.")
             else:
                 progress_bar = st.progress(0)
-                st.empty()
                 status_text = st.empty()
                 
                 try:
@@ -322,44 +316,37 @@ if st.session_state.stage == 1:
         
         edited_profile = {}
         
-        # Row 1: Brand & Protected Core wrapped in toggles
         row1_col1, row1_col2 = st.columns(2)
         with row1_col1:
             with st.expander("✨ View/Edit Allowed Brand Variants & Misspellings", expanded=False):
                 df_bv = pd.DataFrame(st.session_state.brand_profile.get("brand_variants", []), columns=["Brand Variants"])
-                ed_bv = st.data_editor(df_bv, num_rows="dynamic", use_container_width=True, key="editor_bv")
+                ed_bv = st.data_editor(df_bv, num_rows="dynamic", key="editor_bv")
                 edited_profile["brand_variants"] = ed_bv["Brand Variants"].dropna().tolist()
             
         with row1_col2:
             with st.expander("🛡️ View/Edit Protected Core Offering Terms (Safety Shield)", expanded=False):
                 df_prot = pd.DataFrame(st.session_state.brand_profile.get("protected_terms", []), columns=["Protected Core Terms"])
-                ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True, key="editor_prot")
+                ed_prot = st.data_editor(df_prot, num_rows="dynamic", key="editor_prot")
                 edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
             
-        # Row 2: Competitors & Irrelevant Concepts wrapped in toggles
         row2_col1, row2_col2 = st.columns(2)
         with row2_col1:
             with st.expander("🚨 View/Edit Competitor Target Brand Names (Red Flags)", expanded=False):
                 df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
-                ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True, key="editor_comp")
+                ed_comp = st.data_editor(df_comp, num_rows="dynamic", key="editor_comp")
                 edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
         with row2_col2:
             with st.expander("❌ View/Edit Clear Irrelevant Elements & Concepts", expanded=False):
                 df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
-                ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True, key="editor_irr")
+                ed_irr = st.data_editor(df_irr, num_rows="dynamic", key="editor_irr")
                 edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
             
-
-        # 🌐 Row 3: 5th Box - Allowed Languages Matrix wrapped in toggle
         with st.expander("🌐 View/Edit Allowed Target Languages & Regions", expanded=False):
             default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
             df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
-            ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
+            ed_lang = st.data_editor(df_lang, num_rows="dynamic", width=400, key="editor_lang")
             edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
             
-        # ==========================================
-        # 📥 NEW: BULK KNOWLEDGE ROUTER PLAYGROUND
-        # ==========================================
         st.markdown("---")
         st.subheader("💡 Trial: Bulk Knowledge Router Playground")
         st.caption("Ignore for Now. Potentially a future feature.")
@@ -370,13 +357,12 @@ if st.session_state.stage == 1:
             placeholder="free software\ncheap tool\n[competitor name xyz]\nfrançais\nmanual download pdf"
         )
         
-        if st.button("⚡ Automatically Organize & Route Keywords", use_container_width=True):
+        if st.button("⚡ Automatically Organize & Route Keywords"):
             if not bulk_input.strip():
                 st.warning("Please paste some bulk text lines to organize first.")
             else:
                 with st.spinner("Analyzing root contexts and routing keyword matrix..."):
                     try:
-                        # Map current state values to pull manual edits out of text inputs
                         current_ctx = {
                             "brand_variants": edited_profile.get("brand_variants", []),
                             "competitors": edited_profile.get("competitors", []),
@@ -385,19 +371,16 @@ if st.session_state.stage == 1:
                             "allowed_languages": edited_profile.get("allowed_languages", ["English"])
                         }
                         
-                        # Call secondary routing call
                         routed_output = route_bulk_keywords(
                             bulk_text=bulk_input, 
                             current_profile=current_ctx,
                             target_language=", ".join(current_ctx["allowed_languages"])
                         )
                         
-                        # Merge output and push to system state variables
                         for key in current_ctx:
-                            # Re-map legacy key name variance checks safely
                             api_key_name = "target_languages" if key == "allowed_languages" else key
                             current_ctx[key].extend(routed_output.get(api_key_name, []))
-                            current_ctx[key] = list(set(current_ctx[key])) # Deduplicate
+                            current_ctx[key] = list(set(current_ctx[key]))
                             
                         st.session_state.brand_profile = current_ctx
                         st.success("All historical phrases routed perfectly! Check the edited expanding panels above.")
@@ -415,7 +398,6 @@ if st.session_state.stage == 1:
             cache_key = f"{b_title} | {t_title} | {a_title}"
             save_profile_to_cache(cache_key, edited_profile)
             
-            # Clear memory cache so the drop-down elements refresh cleanly immediately on next load
             st.cache_data.clear()
             
             st.session_state.locked_rules = edited_profile
@@ -455,13 +437,13 @@ elif st.session_state.stage == 2:
                     f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
-                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
+                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\Missing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
     button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
     
-    if st.button(button_text, type="secondary", use_container_width=True, disabled=st.session_state.audit_running):
+    if st.button(button_text, type="secondary", disabled=st.session_state.audit_running):
         if not uploaded_file:
             st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing.")
         else:
@@ -535,6 +517,8 @@ elif st.session_state.stage == 2:
                                     review_list.append(row_data)
                                     
                         except Exception as batch_err:
+                            # 🚨 GLOBAL RUNTIME VISIBILITY UPGRADE
+                            st.error(f"❌ **Direct API Engine Failure Context:** {str(batch_err)}")
                             hit_processing_failure = True
                             for term in api_payload_batch:
                                 if term not in processed_terms_set:
@@ -646,79 +630,48 @@ if st.session_state.audit_results:
         ("Extracted Roots Count", "Extracted Roots 🌳")
     ]
     
-    for idx, (metric_key, display_label) in enumerate(metrics_mapping):
+    for idx, (m_key, m_label) in enumerate(metrics_mapping):
         with met_cols[idx]:
-            val = res_data["metrics"].get(metric_key, 0)
-            st.markdown(f'<p class="metric-bold-label">{display_label}</p>', unsafe_allow_html=True)
-            st.markdown(f'<p class="metric-bold-value">{val}</p>', unsafe_allow_html=True)
-
+            st.markdown(f"<div class='metric-bold-label'>{m_label}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-bold-value'>{res_data['metrics'][m_key]}</div>", unsafe_allow_html=True)
+            
     st.markdown("---")
     
-    # Grid Breakdown Panels
-    col_out1, col_out2 = st.columns([7, 3])
+    # Render Tables
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Irrelevant (Negative Candidates) ❌", 
+        "Extracted Root Negatives 🌳", 
+        "Review Queue 🔍", 
+        "Relevant Terms ✅", 
+        "Overlooked Terms ⚠️"
+    ])
     
-    with col_out1:
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "❌ Irrelevant Terms", 
-            "🌳 Extracted Roots", 
-            "🔍 Review Queue", 
-            "✅ Relevant Terms", 
-            "⚠️ Overlooked"
-        ])
-        
-        with tab1:
-            if res_data["irrelevant"]:
-                st.dataframe(pd.DataFrame(res_data["irrelevant"]), use_container_width=True, hide_index=True)
-            else:
-                st.info("No irrelevant terms found.")
-                
-        with tab2:
-            if res_data["roots"]:
-                st.dataframe(pd.DataFrame(res_data["roots"]), use_container_width=True, hide_index=True)
-            else:
-                st.info("No root negative combinations extracted.")
-                
-        with tab3:
-            if res_data["review"]:
-                st.dataframe(pd.DataFrame(res_data["review"]), use_container_width=True, hide_index=True)
-            else:
-                st.info("Review queue is clear.")
-                
-        with tab4:
-            if res_data["relevant"]:
-                st.dataframe(pd.DataFrame(res_data["relevant"]), use_container_width=True, hide_index=True)
-            else:
-                st.info("No matching relevant parameters found.")
-                
-        with tab5:
-            if res_data["overlooked"]:
-                st.dataframe(pd.DataFrame(res_data["overlooked"]), use_container_width=True, hide_index=True)
-            else:
-                st.info("Zero bypassed exceptions encountered.")
-
-    with col_out2:
-        st.subheader("⚙️ Workspace Controls")
-        st.caption("Need to Sanity Check the Outputs? Download the below Workbook Ledger.")
-        
-        if st.button("🚀 Download Workbook Ledger", use_container_width=True):
-            payload = {
-                "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
-                "Relevant Search Terms": res_data["relevant"],
-                "Irrelevant Search Terms": res_data["irrelevant"],
-                "Review Queue": res_data["review"],
-                "Potentially Overlooked": res_data["overlooked"],
-                "Root Negatives": res_data["roots"]
-            }
+    with tab1:
+        if res_data["irrelevant"]:
+            st.dataframe(pd.DataFrame(res_data["irrelevant"]), use_container_width=True)
+        else:
+            st.info("No completely irrelevant search terms found.")
             
-            with st.spinner("Provisioning real-time Google Sheet asset structure..."):
-                try:
-                    sheet_url = push_to_google_sheets(st.session_state.cache_key, payload)
-                    st.success("Workbook Ledger generated successfully!")
-                    st.markdown(f'[🔗 Open Google Sheet Ledger]({sheet_url})', unsafe_allow_html=True)
-                except Exception as sheet_err:
-                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nSheet integration failed to finalize target workbook: {str(sheet_err)}")
-
-        st.markdown("### 📋 Copy/Paste Negative List")
-        st.caption("Raw Broad/Phrase formatted keywords to insert straight into your Google Ads campaigns.")
-        neg_text = "\n".join(res_data["copy_paste_list"])
-        st.text_area("Google Ads Clipboard Payload", value=neg_text, height=250)
+    with tab2:
+        if res_data["roots"]:
+            st.dataframe(pd.DataFrame(res_data["roots"]), use_container_width=True)
+        else:
+            st.info("No repeating high-frequency junk root words extracted.")
+            
+    with tab3:
+        if res_data["review"]:
+            st.dataframe(pd.DataFrame(res_data["review"]), use_container_width=True)
+        else:
+            st.info("Review queue clear.")
+            
+    with tab4:
+        if res_data["relevant"]:
+            st.dataframe(pd.DataFrame(res_data["relevant"]), use_container_width=True)
+        else:
+            st.info("No matching relevant search terms recorded.")
+            
+    with tab5:
+        if res_data["overlooked"]:
+            st.dataframe(pd.DataFrame(res_data["overlooked"]), use_container_width=True)
+        else:
+            st.info("No bypassed rows during processing cycles.")
