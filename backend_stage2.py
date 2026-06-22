@@ -8,6 +8,7 @@ from google.genai import types
 def classify_terms_batch(search_terms, brand_profile):
     """
     Evaluates a batch of search terms using the exact original logic setup.
+    CRITICAL: Fallback arrays are disabled to force raw traceback visibility.
     """
     
     system_instruction = (
@@ -32,7 +33,7 @@ def classify_terms_batch(search_terms, brand_profile):
     """
 
     try:
-        # Secure the API Key from Streamlit Secrets
+        # Pull API key from Streamlit's native secrets environmental wrapper
         api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("google", {}).get("api_key")
         
         if api_key:
@@ -40,7 +41,6 @@ def classify_terms_batch(search_terms, brand_profile):
         else:
             client = genai.Client()
             
-        # CORRECT METHOD CALL: client.models.generate_content
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt_payload,
@@ -56,16 +56,9 @@ def classify_terms_batch(search_terms, brand_profile):
         return results
 
     except Exception as e:
-        # Keep the safety net intact but output the exact live error text for transparency
-        fallback_results = []
-        for term in search_terms:
-            fallback_results.append({
-                "search_term": term,
-                "classification": "review",
-                "confidence": 0.50,
-                "reason": f"Live connection trace: {str(e)}"
-            })
-        return fallback_results
+        # --- DEBUG MODE ACTIVE ---
+        # Forcibly crash the application and print the exact system exception error trace to the UI
+        raise e
 
 
 def extract_root_negatives(irrelevant_phrases, saved_phrases, protected_terms):
