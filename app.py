@@ -281,6 +281,7 @@ if st.session_state.stage == 1:
                 st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required input fields were left blank or unselected.")
             else:
                 progress_bar = st.progress(0)
+                st.empty()
                 status_text = st.empty()
                 
                 try:
@@ -638,49 +639,67 @@ if st.session_state.audit_results:
     met_cols = st.columns(6)
     metrics_mapping = [
         ("Total Inputted Terms", "Total Inputted Terms"),
-        ("Relevant Terms ✅", "Relevant Terms"),
-        ("Irrelevant Terms ❌", "Irrelevant Terms"),
-        ("Review Queue 🔍", "Review Queue Terms"),
-        ("Potentially Overlooked ⚠️", "Potentially Overlooked Terms"),
-        ("Extracted Roots Count 🪵", "Extracted Roots Count")
+        ("Relevant Terms", "Relevant ✅"),
+        ("Irrelevant Terms", "Irrelevant ❌"),
+        ("Review Queue Terms", "Review Queue 🔍"),
+        ("Potentially Overlooked Terms", "Overlooked ⚠️"),
+        ("Extracted Roots Count", "Extracted Roots 🌳")
     ]
     
-    for idx, (label, key) in enumerate(metrics_mapping):
+    for idx, (metric_key, display_label) in enumerate(metrics_mapping):
         with met_cols[idx]:
-            st.markdown(f'<div class="metric-bold-label">{label}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-bold-value">{res_data["metrics"][key]}</div>', unsafe_allow_html=True)
-            
-    st.markdown("<br>", unsafe_allow_html=True)
+            val = res_data["metrics"].get(metric_key, 0)
+            st.markdown(f'<p class="metric-bold-label">{display_label}</p>', unsafe_allow_html=True)
+            st.markdown(f'<p class="metric-bold-value">{val}</p>', unsafe_allow_html=True)
+
+    st.markdown("---")
     
-    col_views = st.columns(2)
-    with col_views[0]:
-        with st.expander("🔍 Standard Review Queue View", expanded=True):
-            df_rev = pd.DataFrame(res_data["review"])
-            st.dataframe(df_rev, use_container_width=True, hide_index=True)
-            if not df_rev.empty:
-                st.download_button("Download Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv", key="btn_dl_rev")
-                
-    with col_views[1]:
-        with st.expander("⚠️ Potentially Overlooked Isolation Queue", expanded=True):
-            df_ovr = pd.DataFrame(res_data["overlooked"])
-            st.dataframe(df_ovr, use_container_width=True, hide_index=True)
-            if not df_ovr.empty:
-                st.download_button("Download Overlooked Queue CSV", data=df_ovr.to_csv(index=False), file_name="overlooked_queue_dump.csv", key="btn_dl_ovr")
-            else:
-                st.info("System operational health stable. Zero terms bypassed to fallback parameters.")
-                
-    st.markdown("<br>", unsafe_allow_html=True)
-            
-    col_out1, col_out2 = st.columns([2, 1])
+    # Grid Breakdown Panels
+    col_out1, col_out2 = st.columns([7, 3])
+    
     with col_out1:
-        st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
-        st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
-        text_block = "\n".join(res_data["copy_paste_list"])
-        st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350)
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "❌ Irrelevant Terms", 
+            "🌳 Extracted Roots", 
+            "🔍 Review Queue", 
+            "✅ Relevant Terms", 
+            "⚠️ Overlooked"
+        ])
         
+        with tab1:
+            if res_data["irrelevant"]:
+                st.dataframe(pd.DataFrame(res_data["irrelevant"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("No irrelevant terms found.")
+                
+        with tab2:
+            if res_data["roots"]:
+                st.dataframe(pd.DataFrame(res_data["roots"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("No root negative combinations extracted.")
+                
+        with tab3:
+            if res_data["review"]:
+                st.dataframe(pd.DataFrame(res_data["review"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("Review queue is clear.")
+                
+        with tab4:
+            if res_data["relevant"]:
+                st.dataframe(pd.DataFrame(res_data["relevant"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("No matching relevant parameters found.")
+                
+        with tab5:
+            if res_data["overlooked"]:
+                st.dataframe(pd.DataFrame(res_data["overlooked"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("Zero bypassed exceptions encountered.")
+
     with col_out2:
         st.subheader("⚙️ Workspace Controls")
         st.caption("Need to Sanity Check the Outputs? Download the below Workbook Ledger.")
+        
         if st.button("🚀 Download Workbook Ledger", use_container_width=True):
             payload = {
                 "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
@@ -693,7 +712,13 @@ if st.session_state.audit_results:
             
             with st.spinner("Provisioning real-time Google Sheet asset structure..."):
                 try:
-                    # Final pipeline sheets synchronization connection hooks go here
-                    pass
+                    sheet_url = push_to_google_sheets(st.session_state.cache_key, payload)
+                    st.success("Workbook Ledger generated successfully!")
+                    st.markdown(f'[🔗 Open Google Sheet Ledger]({sheet_url})', unsafe_allow_html=True)
                 except Exception as sheet_err:
-                    st.error(f"Sheet integration failed: {str(sheet_err)}")
+                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nSheet integration failed to finalize target workbook: {str(sheet_err)}")
+
+        st.markdown("### 📋 Copy/Paste Negative List")
+        st.caption("Raw Broad/Phrase formatted keywords to insert straight into your Google Ads campaigns.")
+        neg_text = "\n".join(res_data["copy_paste_list"])
+        st.text_area("Google Ads Clipboard Payload", value=neg_text, height=250)
