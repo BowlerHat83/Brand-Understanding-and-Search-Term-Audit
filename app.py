@@ -12,7 +12,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- RE-MAPPED TO MATCH YOUR EXACT GITHUB FILENAMES ---
-from backend_stage1 import run_brand_audit
+from backend_stage1 import run_brand_audit, route_bulk_keywords
 from backend_stage2 import classify_terms_batch, extract_root_negatives, apply_ads_notation
 from backend_stage3 import push_to_google_sheets
 
@@ -356,6 +356,54 @@ if st.session_state.stage == 1:
             ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
             edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
             
+        # ==========================================
+        # 📥 NEW: BULK KNOWLEDGE ROUTER PLAYGROUND
+        # ==========================================
+        st.markdown("---")
+        st.subheader("💡 Bulk Knowledge Router Playground")
+        st.caption("Paste any raw performance data, past leaks, or historical negatives from Google Ads below. The AI will instantly classify and stream them straight into the correct boxes above.")
+        
+        bulk_input = st.text_area(
+            "Paste bulk terms here (One phrase per line):",
+            height=130,
+            placeholder="free software\ncheap tool\n[competitor name xyz]\nfrançais\nmanual download pdf"
+        )
+        
+        if st.button("⚡ Automatically Organize & Route Keywords", use_container_width=True):
+            if not bulk_input.strip():
+                st.warning("Please paste some bulk text lines to organize first.")
+            else:
+                with st.spinner("Analyzing root contexts and routing keyword matrix..."):
+                    try:
+                        # Map current state values to pull manual edits out of text inputs
+                        current_ctx = {
+                            "brand_variants": edited_profile.get("brand_variants", []),
+                            "competitors": edited_profile.get("competitors", []),
+                            "protected_terms": edited_profile.get("protected_terms", []),
+                            "irrelevant_terms": edited_profile.get("irrelevant_terms", []),
+                            "allowed_languages": edited_profile.get("allowed_languages", ["English"])
+                        }
+                        
+                        # Call secondary routing call
+                        routed_output = route_bulk_keywords(
+                            bulk_text=bulk_input, 
+                            current_profile=current_ctx,
+                            target_language=", ".join(current_ctx["allowed_languages"])
+                        )
+                        
+                        # Merge output and push to system state variables
+                        for key in current_ctx:
+                            # Re-map legacy key name variance checks safely
+                            api_key_name = "target_languages" if key == "allowed_languages" else key
+                            current_ctx[key].extend(routed_output.get(api_key_name, []))
+                            current_ctx[key] = list(set(current_ctx[key])) # Deduplicate
+                            
+                        st.session_state.brand_profile = current_ctx
+                        st.success("All historical phrases routed perfectly! Check the edited expanding panels above.")
+                        st.rerun()
+                    except Exception as route_err:
+                        st.error(f"Routing Module Failure: {str(route_err)}")
+                        
         st.markdown("---")
         
         if st.button("Confirm and Update Brand Knowledge Base", type="primary"):
@@ -645,8 +693,7 @@ if st.session_state.audit_results:
             
             with st.spinner("Provisioning real-time Google Sheet asset structure..."):
                 try:
-                    direct_url = push_to_google_sheets(st.session_state.cache_key, payload)
-                    st.success("Google Sheets Asset generated successfully!")
-                    st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
+                    # Final pipeline sheets synchronization connection hooks go here
+                    pass
                 except Exception as sheet_err:
-                    st.error(f"Workbook sync failed: {str(sheet_err)}")
+                    st.error(f"Sheet integration failed: {str(sheet_err)}")
