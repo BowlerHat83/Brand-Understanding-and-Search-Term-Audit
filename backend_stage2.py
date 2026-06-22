@@ -8,7 +8,6 @@ from google.genai import types
 def classify_terms_batch(search_terms, brand_profile):
     """
     Evaluates a batch of search terms using the exact original logic setup.
-    Includes explicit API key binding to bypass connection blocks.
     """
     
     system_instruction = (
@@ -33,15 +32,15 @@ def classify_terms_batch(search_terms, brand_profile):
     """
 
     try:
-        # Pull API key from Streamlit's native secrets environmental wrapper
+        # Secure the API Key from Streamlit Secrets
         api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("google", {}).get("api_key")
         
-        # Explicit initialization prevents the SDK from falling back to empty environmental variables
         if api_key:
             client = genai.Client(api_key=api_key)
         else:
             client = genai.Client()
             
+        # CORRECT METHOD CALL: client.models.generate_content
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt_payload,
@@ -57,7 +56,7 @@ def classify_terms_batch(search_terms, brand_profile):
         return results
 
     except Exception as e:
-        # Keep the safety net intact but pass the true error string down so you can read it in the UI
+        # Keep the safety net intact but output the exact live error text for transparency
         fallback_results = []
         for term in search_terms:
             fallback_results.append({
