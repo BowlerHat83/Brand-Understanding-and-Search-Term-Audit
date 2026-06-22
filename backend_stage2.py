@@ -52,7 +52,7 @@ def classify_terms_batch(search_terms, brand_profile):
         client = genai.Client()
         
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-2.5-pro',
             contents=prompt_payload,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
