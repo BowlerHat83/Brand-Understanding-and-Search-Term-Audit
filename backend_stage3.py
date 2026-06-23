@@ -1,55 +1,45 @@
 import gspread
+from google.oauth2.service_account import Credentials
 import streamlit as st
-from datetime import datetime
-from oauth2client.service_account import ServiceAccountCredentials
-import pandas as pd
 
-def push_to_google_sheets(cache_key: str, data_payload: dict) -> str:
+def push_to_google_sheets(cache_key: str, payload: dict) -> str:
     """
-    Overwrites a shared master spreadsheet across the office,
-    completely bypassing the service account storage creation quotas.
+    Creates a detailed multi-tab optimization workbook and passes back the public URL.
     """
-    scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+    gc = gspread.authorize(creds)
     
-    try:
-        if "gcp_service_account" not in st.secrets:
-            raise KeyError("gcp_service_account section missing from Streamlit secrets config.")
+    # Create a fresh spreadsheet workbook
+    sheet_title = f"Negative Optimization Ledger: {cache_key}"
+    spreadsheet = gc.create(sheet_title)
+    
+    # Share it so that the user can open the link
+    # NOTE: In a production environment, you might share with a specific email or make public via link
+    spreadsheet.share('', perm_type='anyone', role='viewer')
+    
+    # Populate Tabs based on the incoming dictionary payload keys
+    first_tab = True
+    for tab_name, rows in payload.items():
+        if not rows:
+            continue
             
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scopes)
-        client = gspread.authorize(creds)
-        
-        # --- 🎯 THE BULLETPROOF MASTER TEMPLATE BYPASS ---
-        MASTER_SPREADSHEET_ID = "1om-Du-zmqd3dy-KtUxiMVWAYLhVVGqZha9bpuI0ZRNs"
-        
-        # Open the shared office asset directly
-        spreadsheet = client.open_by_key(MASTER_SPREADSHEET_ID)
-        
-        tabs_to_update = [
-            "Metrics Data", 
-            "Relevant Search Terms", 
-            "Irrelevant Search Terms", 
-            "Review Queue", 
-            "Root Negatives"
-        ]
-        
-        for tab_name in tabs_to_update:
-            df = pd.DataFrame(data_payload.get(tab_name, []))
+        if first_tab:
+            worksheet = spreadsheet.sheet1
+            worksheet.update_title(tab_name[:30]) # Google Sheets limits tab titles to 30 chars
+            first_tab = False
+        else:
+            worksheet = spreadsheet.add_worksheet(title=tab_name[:30], rows="100", cols="20")
             
-            # Try to grab the tab if it exists, otherwise build it dynamically
-            try:
-                worksheet = spreadsheet.worksheet(tab_name)
-                worksheet.clear() # Wipe old audit run clean
-            except gspread.exceptions.WorksheetNotFound:
-                worksheet = spreadsheet.add_worksheet(title=tab_name, rows="1000", cols="20")
-                
-            if not df.empty:
-                df = df.fillna("")
-                sheet_data = [df.columns.values.tolist()] + df.values.tolist()
-                # Fix: explicit keyword parameters assigned to comply with modern gspread formatting
-                worksheet.update(range_name="A1", values=sheet_data)
-                
-        return spreadsheet.url
-        
-    except Exception as e:
-        raise RuntimeError(f"Google Drive cloud integration file generation failed: {str(e)}")
+        # Convert list of dicts to standard rows with headers
+        if isinstance(rows, list) and len(rows) > 0 and isinstance(rows[0], dict):
+            headers = list(rows[0].keys())
+            data_matrix = [headers]
+            for r in rows:
+                data_matrix.append([str(r.get(h, "")) for h in headers])
+            worksheet.update(range_name="A1", values=data_matrix)
+            
+    return f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
