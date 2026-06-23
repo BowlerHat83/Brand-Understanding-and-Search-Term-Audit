@@ -12,7 +12,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- RE-MAPPED TO MATCH YOUR EXACT GITHUB FILENAMES ---
-from backend_stage1 import run_brand_audit, route_bulk_keywords
+from backend_stage1 import run_brand_audit
 from backend_stage2 import classify_terms_batch, extract_root_negatives, apply_ads_notation
 from backend_stage3 import push_to_google_sheets
 
@@ -54,22 +54,20 @@ def safe_split_cell(cell_value):
     clean_value = str(cell_value).strip("[]\"'")
     return [item.strip() for item in clean_value.split(",") if item.strip()]
 
-@st.cache_data(ttl=60)
 def get_cached_profiles():
-    """Pulls all available brand profile names from the Google Sheet rows. Cached for 60 seconds."""
+    """Pulls all available brand profile names from the Google Sheet rows."""
     try:
         gc = get_gspread_client()
         sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
         records = sheet.get_all_records()
         
         profile_names = [row["Profile Name"] for row in records if row.get("Profile Name")]
-        return ["-Create New-"] + sorted(profile_names, key=str.lower)
+        return ["Create New"] + sorted(profile_names, key=str.lower)
     except Exception:
-        return ["-Create New-"]
+        return ["Create New"]
 
-@st.cache_data(ttl=60)
 def load_cached_profile(profile_name):
-    """Finds the matching row, safely handling human-edited text formatting. Cached for 60 seconds."""
+    """Finds the matching row, safely handling human-edited text formatting."""
     try:
         gc = get_gspread_client()
         sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
@@ -117,7 +115,10 @@ def save_profile_to_cache(name, data):
 # --- END CACHE LAYER ---
 
 def is_foreign_script(text):
-    """Detects if a string contains non-Latin/non-Western characters."""
+    """
+    Detects if a string contains non-Latin/non-Western characters.
+    Allows standard English characters, numbers, spaces, and common punctuation.
+    """
     if re.search(r'[^\x00-\x7F\u00C0-\u017F\s\d.,&\'"\-_+/()!]', text):
         return True
     return False
@@ -143,7 +144,7 @@ nav_cols = st.columns([1, 4, 1])
 
 with nav_cols[0]:
     if st.session_state.stage > 1:
-        if st.button("⬅️ Back to Stage 1", disabled=st.session_state.audit_running):
+        if st.button("⬅️ Back to Stage 1", use_container_width=True, disabled=st.session_state.audit_running):
             st.session_state.stage = 1
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
@@ -164,7 +165,7 @@ with nav_cols[0]:
 
 with nav_cols[2]:
     if st.session_state.stage == 1 and st.session_state.locked_rules is not None:
-        if st.button("Forward to Stage 2 ➡️"):
+        if st.button("Forward to Stage 2 ➡️", use_container_width=True):
             st.session_state.stage = 2
             st.rerun()
 
@@ -176,54 +177,48 @@ st.markdown("---")
 if st.session_state.stage == 1:
     st.header("Stage 1: Brand Understanding Audit")
     
+    # 1. Fetch raw cache entries from sheet rows
     cache_options = get_cached_profiles()
     
+    # 2. Parse out isolated, unique portfolio brand tokens
     unique_brands = set()
     for option in cache_options:
-        if option not in ["-Create New-", "Create New"]:
+        if option != "Create New":
             parts = option.split(" | ")
             unique_brands.add(parts[0].strip())
             
-    brand_list = ["-Create New-"] + sorted(list(unique_brands), key=str.lower)
+    brand_list = ["Create New"] + sorted(list(unique_brands), key=str.lower)
     
+    # --- CASCADING INTERFACE BLOCKS ---
     col_b1, col_b2 = st.columns(2)
     
     with col_b1:
         selected_brand_tier = st.selectbox("🏢 Select Brand Portfolio", options=brand_list, index=0)
         
-    selected_cache = "-Create New-"
+    selected_cache = "Create New"
     
     with col_b2:
-        if selected_brand_tier != "-Create New-":
+        if selected_brand_tier != "Create New":
+            # Extract sub-components matching chosen brand portfolio
             matching_workspaces = []
             for option in cache_options:
                 if option.startswith(f"{selected_brand_tier} | "):
                     workspace_suffix = option.replace(f"{selected_brand_tier} | ", "").strip()
                     matching_workspaces.append(workspace_suffix)
             
-            workspace_options = ["-Please Select-"] + sorted(matching_workspaces, key=str.lower)
-            
             selected_workspace_tier = st.selectbox(
                 "🎯 Select Active Campaign / Ad Group Workspace", 
-                options=workspace_options,
-                index=0
+                options=sorted(matching_workspaces, key=str.lower)
             )
             
-            if selected_workspace_tier and selected_workspace_tier != "-Please Select-":
+            if selected_workspace_tier:
                 selected_cache = f"{selected_brand_tier} | {selected_workspace_tier}"
-            else:
-                selected_cache = "-Please Select-"
         else:
             st.selectbox("🎯 Select Active Campaign Workspace", options=["N/A - Creating New Brand Profile"], disabled=True)
     
     st.markdown("---")
     
-    if selected_cache == "-Please Select-":
-        st.info("ℹ️ Please select a specific Campaign / Ad Group Workspace from the dropdown menu above to load its profile parameters.")
-        st.session_state.brand_profile = None
-        st.session_state.locked_rules = None
-
-    elif selected_cache != "-Create New-":
+    if selected_cache != "Create New":
         if st.session_state.brand_profile is None or st.session_state.get('cache_key') != selected_cache:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
@@ -235,8 +230,8 @@ if st.session_state.stage == 1:
                     st.session_state.temp_ad_group_name = cache_parts[2]
                 else:
                     st.session_state.temp_brand_name = cache_parts[0]
-                    st.session_state.temp_campaign_type = "Search"
-                    st.session_state.temp_ad_group_name = cache_parts[1] if len(cache_parts) > 1 else ""
+                    st.session_state.temp_campaign_type = cache_parts[1] if len(cache_parts) > 1 else "Search"
+                    st.session_state.temp_ad_group_name = cache_parts[2] if len(cache_parts) > 2 else ""
                     
                 st.session_state.locked_rules = st.session_state.brand_profile
                 st.session_state.cache_key = selected_cache
@@ -246,7 +241,7 @@ if st.session_state.stage == 1:
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
     else:
-        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') not in ["-Create New-", "-Please Select-"]:
+        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') != "Create New":
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
             
@@ -301,7 +296,7 @@ if st.session_state.stage == 1:
                     if "429" in err_str or "quota" in err_str:
                         st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe API speed limit was hit. Please pause for 60 seconds.")
                     elif "gemini" in err_str:
-                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process. Please Try Again in a Few Minutes")
+                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process.")
                     else:
                         st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected backend processing anomaly occurred. Details: {str(e)}")
 
@@ -309,82 +304,48 @@ if st.session_state.stage == 1:
 
     if st.session_state.brand_profile:
         st.markdown("### 📝 Refine Brand Understanding Rulesets")
-        st.caption("Expand the options below to add custom items, clear rows, or correct terms before cementing absolute rules.")
+        st.caption("Double-click individual cells to add custom items, clear rows, or correct terms before cementing absolute rules.")
         
         edited_profile = {}
         
+        # Row 1: Brand & Protected Core
         row1_col1, row1_col2 = st.columns(2)
         with row1_col1:
-            with st.expander("✨ View/Edit Allowed Brand Variants & Misspellings", expanded=False):
-                df_bv = pd.DataFrame(st.session_state.brand_profile.get("brand_variants", []), columns=["Brand Variants"])
-                ed_bv = st.data_editor(df_bv, num_rows="dynamic", key="editor_bv")
-                edited_profile["brand_variants"] = ed_bv["Brand Variants"].dropna().tolist()
+            st.markdown("#### ✨ Allowed Brand Variants & Misspellings")
+            df_bv = pd.DataFrame(st.session_state.brand_profile.get("brand_variants", []), columns=["Brand Variants"])
+            ed_bv = st.data_editor(df_bv, num_rows="dynamic", use_container_width=True, key="editor_bv")
+            edited_profile["brand_variants"] = ed_bv["Brand Variants"].dropna().tolist()
             
         with row1_col2:
-            with st.expander("🛡️ View/Edit Protected Core Offering Terms (Safety Shield)", expanded=False):
-                df_prot = pd.DataFrame(st.session_state.brand_profile.get("protected_terms", []), columns=["Protected Core Terms"])
-                ed_prot = st.data_editor(df_prot, num_rows="dynamic", key="editor_prot")
-                edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
+            st.markdown("#### 🛡️ Protected Core Offering Terms (Safety Shield)")
+            df_prot = pd.DataFrame(st.session_state.brand_profile.get("protected_terms", []), columns=["Protected Core Terms"])
+            ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True, key="editor_prot")
+            edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
             
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Row 2: Competitors & Irrelevant Concepts
         row2_col1, row2_col2 = st.columns(2)
         with row2_col1:
-            with st.expander("🚨 View/Edit Competitor Target Brand Names (Red Flags)", expanded=False):
-                df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
-                ed_comp = st.data_editor(df_comp, num_rows="dynamic", key="editor_comp")
-                edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
+            st.markdown("#### 🚨 Competitor Target Brand Names (Red Flags)")
+            df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
+            ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True, key="editor_comp")
+            edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
         with row2_col2:
-            with st.expander("❌ View/Edit Clear Irrelevant Elements & Concepts", expanded=False):
-                df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
-                ed_irr = st.data_editor(df_irr, num_rows="dynamic", key="editor_irr")
-                edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
+            st.markdown("#### ❌ Clear Irrelevant Elements & Concepts")
+            df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
+            ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True, key="editor_irr")
+            edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
             
-        with st.expander("🌐 View/Edit Allowed Target Languages & Regions", expanded=False):
-            default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
-            df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
-            ed_lang = st.data_editor(df_lang, num_rows="dynamic", width=400, key="editor_lang")
-            edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # 🌐 Row 3: 5th Box - Allowed Languages Matrix
+        st.markdown("#### 🌐 Allowed Target Languages & Regions")
+        default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
+        df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
+        ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
+        edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
             
-        st.markdown("---")
-        st.subheader("💡 Trial: Bulk Knowledge Router Playground")
-        st.caption("Ignore for Now. Potentially a future feature.")
-        
-        bulk_input = st.text_area(
-            "Paste bulk terms here (One phrase per line):",
-            height=130,
-            placeholder="free software\ncheap tool\n[competitor name xyz]\nfrançais\nmanual download pdf"
-        )
-        
-        if st.button("⚡ Automatically Organize & Route Keywords"):
-            if not bulk_input.strip():
-                st.warning("Please paste some bulk text lines to organize first.")
-            else:
-                with st.spinner("Analyzing root contexts and routing keyword matrix..."):
-                    try:
-                        current_ctx = {
-                            "brand_variants": edited_profile.get("brand_variants", []),
-                            "competitors": edited_profile.get("competitors", []),
-                            "protected_terms": edited_profile.get("protected_terms", []),
-                            "irrelevant_terms": edited_profile.get("irrelevant_terms", []),
-                            "allowed_languages": edited_profile.get("allowed_languages", ["English"])
-                        }
-                        
-                        routed_output = route_bulk_keywords(
-                            bulk_text=bulk_input, 
-                            current_profile=current_ctx,
-                            target_language=", ".join(current_ctx["allowed_languages"])
-                        )
-                        
-                        for key in current_ctx:
-                            api_key_name = "target_languages" if key == "allowed_languages" else key
-                            current_ctx[key].extend(routed_output.get(api_key_name, []))
-                            current_ctx[key] = list(set(current_ctx[key]))
-                            
-                        st.session_state.brand_profile = current_ctx
-                        st.success("All historical phrases routed perfectly! Check the edited expanding panels above.")
-                        st.rerun()
-                    except Exception as route_err:
-                        st.error(f"Routing Module Failure: {str(route_err)}")
-                        
         st.markdown("---")
         
         if st.button("Confirm and Update Brand Knowledge Base", type="primary"):
@@ -394,8 +355,6 @@ if st.session_state.stage == 1:
             
             cache_key = f"{b_title} | {t_title} | {a_title}"
             save_profile_to_cache(cache_key, edited_profile)
-            
-            st.cache_data.clear()
             
             st.session_state.locked_rules = edited_profile
             st.session_state.cache_key = cache_key
@@ -434,13 +393,13 @@ elif st.session_state.stage == 2:
                     f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
-                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMapped column missing. File needs 'Search Term' or 'Query'.")
+                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
 
     button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
     
-    if st.button(button_text, type="secondary", disabled=st.session_state.audit_running):
+    if st.button(button_text, type="secondary", use_container_width=True, disabled=st.session_state.audit_running):
         if not uploaded_file:
             st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing.")
         else:
@@ -474,6 +433,8 @@ elif st.session_state.stage == 2:
                 review_list = []
                 overlooked_list = []
                 processed_terms_set = set()
+                
+                hit_processing_failure = False
                 
                 for i in range(0, total_input_count, BATCH_SIZE):
                     batch = search_terms[i:i + BATCH_SIZE]
@@ -512,13 +473,13 @@ elif st.session_state.stage == 2:
                                     review_list.append(row_data)
                                     
                         except Exception as batch_err:
-                            # 🚀 NO HARD STOPS: Save skipped rows instantly to overlooked and move on immediately
+                            hit_processing_failure = True
                             for term in api_payload_batch:
                                 if term not in processed_terms_set:
                                     overlooked_list.append({
                                         "Search Term": term, 
                                         "Confidence Score": 0.00, 
-                                        "Reasoning": f"Google API 503 Overload Drop: {str(batch_err)}"
+                                        "Reasoning": f"Bypass validation fallback loop segment: {str(batch_err)}"
                                     })
                                     processed_terms_set.add(term)
                     
@@ -530,6 +491,17 @@ elif st.session_state.stage == 2:
                     m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
                     m4.metric("Review Queue 🔍", f"{len(review_list)}")
                     m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
+                    
+                    if hit_processing_failure:
+                        break
+
+                for term in search_terms:
+                    if term not in processed_terms_set:
+                        overlooked_list.append({
+                            "Search Term": term, 
+                            "Confidence Score": 0.00, 
+                            "Reasoning": "System reconciliation safety framework catch (Process Paused)"
+                        })
 
                 irr_phrases = [r["Search Term"] for r in irrelevant_list]
                 saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
@@ -583,6 +555,7 @@ elif st.session_state.stage == 2:
                     "copy_paste_list": final_negatives_output
                 }
                 st.session_state.audit_running = False
+                st.success("Analysis matrix generated.")
                 st.rerun()
                 
             except Exception as main_err:
@@ -596,62 +569,78 @@ if st.session_state.audit_results:
     st.subheader("🛡️ Audit Summary Performance Data")
     
     if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
-        st.warning(
-            f"⚠️ **Partial Results Delivered:** {res_data['metrics']['Potentially Overlooked Terms']} terms were skipped instantly "
-            f"because Google's servers were overloaded. You can export everything classified so far right now below."
+        st.error(
+            f"⚠️ **Classification Incomplete:** The engine was unsuccessful in classifying terms due to system processing risks. "
+            f"The runthrough process has been paused to save API costs. Please check your parameters and try again in 10 mins."
         )
     
     met_cols = st.columns(6)
     metrics_mapping = [
         ("Total Inputted Terms", "Total Inputted Terms"),
-        ("Relevant Terms", "Relevant ✅"),
-        ("Irrelevant Terms", "Irrelevant ❌"),
-        ("Review Queue Terms", "Review Queue 🔍"),
-        ("Potentially Overlooked Terms", "Overlooked ⚠️"),
-        ("Extracted Roots Count", "Extracted Roots 🌳")
+        ("Relevant Terms ✅", "Relevant Terms"),
+        ("Irrelevant Terms ❌", "Irrelevant Terms"),
+        ("Review Queue 🔍", "Review Queue Terms"),
+        ("Potentially Overlooked ⚠️", "Potentially Overlooked Terms"),
+        ("Extracted Roots Count 🪵", "Extracted Roots Count")
     ]
     
-    for idx, (m_key, m_label) in enumerate(metrics_mapping):
+    for idx, (label, key) in enumerate(metrics_mapping):
         with met_cols[idx]:
-            st.markdown(f"<div class='metric-bold-label'>{m_label}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-bold-value'>{res_data['metrics'][m_key]}</div>", unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-bold-label">{label}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-bold-value">{res_data["metrics"][key]}</div>', unsafe_allow_html=True)
             
-    st.markdown("---")
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Irrelevant (Negative Candidates) ❌", 
-        "Extracted Root Negatives 🌳", 
-        "Review Queue 🔍", 
-        "Relevant Terms ✅", 
-        "Overlooked Terms ⚠️"
-    ])
-    
-    with tab1:
-        if res_data["irrelevant"]:
-            st.dataframe(pd.DataFrame(res_data["irrelevant"]), use_container_width=True)
-        else:
-            st.info("No completely irrelevant search terms found.")
+    col_views = st.columns(2)
+    with col_views[0]:
+        with st.expander("🔍 Standard Review Queue View", expanded=True):
+            df_rev = pd.DataFrame(res_data["review"])
+            st.dataframe(df_rev, use_container_width=True, hide_index=True)
+            if not df_rev.empty:
+                st.download_button("Download Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv", key="btn_dl_rev")
+                
+    with col_views[1]:
+        with st.expander("⚠️ Potentially Overlooked Isolation Queue", expanded=True):
+            df_ovr = pd.DataFrame(res_data["overlooked"])
+            st.dataframe(df_ovr, use_container_width=True, hide_index=True)
+            if not df_ovr.empty:
+                st.download_button("Download Overlooked Queue CSV", data=df_ovr.to_csv(index=False), file_name="overlooked_queue_dump.csv", key="btn_dl_ovr")
+            else:
+                st.info("System operational health stable. Zero terms bypassed to fallback parameters.")
+                
+    st.markdown("<br>", unsafe_allow_html=True)
             
-    with tab2:
-        if res_data["roots"]:
-            st.dataframe(pd.DataFrame(res_data["roots"]), use_container_width=True)
-        else:
-            st.info("No repeating high-frequency junk root words extracted.")
+    col_out1, col_out2 = st.columns([2, 1])
+    with col_out1:
+        st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
+        st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
+        text_block = "\n".join(res_data["copy_paste_list"])
+        st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350)
+        
+    with col_out2:
+        st.subheader("⚙️ Workspace Controls")
+        st.caption("Need to Sanity Check the Outputs? Download the below Workbook Ledger.")
+        if st.button("🚀 Download Workbook Ledger", use_container_width=True):
+            payload = {
+                "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
+                "Relevant Search Terms": res_data["relevant"],
+                "Irrelevant Search Terms": res_data["irrelevant"],
+                "Review Queue": res_data["review"],
+                "Potentially Overlooked": res_data["overlooked"],
+                "Root Negatives": res_data["roots"]
+            }
             
-    with tab3:
-        if res_data["review"]:
-            st.dataframe(pd.DataFrame(res_data["review"]), use_container_width=True)
-        else:
-            st.info("Review queue clear.")
-            
-    with tab4:
-        if res_data["relevant"]:
-            st.dataframe(pd.DataFrame(res_data["relevant"]), use_container_width=True)
-        else:
-            st.info("No matching relevant search terms recorded.")
-            
-    with tab5:
-        if res_data["overlooked"]:
-            st.dataframe(pd.DataFrame(res_data["overlooked"]), use_container_width=True)
-        else:
-            st.info("No bypassed rows during processing cycles.")
+            with st.spinner("Provisioning real-time Google Sheet asset structure..."):
+                try:
+                    direct_url = push_to_google_sheets(st.session_state.cache_key, payload)
+                    st.success("Google Sheets Asset generated successfully!")
+                    st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
+                except Exception as e:
+                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCloud ledger synchronization pipeline interrupted: {str(e)}")
+                    
+        if st.button("🔄 Start New Audit", use_container_width=True):
+            st.session_state.stage = 1
+            st.session_state.brand_profile = None
+            st.session_state.locked_rules = None
+            st.session_state.audit_results = None
+            st.rerun()
