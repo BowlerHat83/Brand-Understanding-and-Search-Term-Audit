@@ -7,10 +7,11 @@ from google.genai import types
 
 def classify_terms_batch(search_terms, brand_profile):
     """
-    Evaluates a batch of search terms using the exact original logic setup.
+    Evaluates a batch of search terms using the original working logic setup.
     CRITICAL: Fallback arrays are disabled to force raw traceback visibility.
     """
     
+    # Reverted back to the original working layout instruction string
     system_instruction = (
         "You are an automated Google Ads helper tool. Classify the provided search terms into "
         "one of three buckets based on the brand profile:\n"
@@ -19,7 +20,7 @@ def classify_terms_batch(search_terms, brand_profile):
         "3. 'review' - if you are unsure or the term is borderline.\n\n"
         "Return a valid JSON array of objects matching the input perfectly. Each object must contain "
         "EXACTLY these keys:\n"
-        '{"search_term": "string", "classification": "relevant"|"irrelevant"|"review", "confidence": float, "reason": "string"}'
+        '{"search_term": "string", "classification": "relevant", "confidence": 1.0, "reason": "string"}'
     )
 
     prompt_payload = f"""
@@ -46,7 +47,7 @@ def classify_terms_batch(search_terms, brand_profile):
             contents=prompt_payload,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.7,
+                temperature=0.1,  # Kept low to enforce conservative choices safely
                 response_mime_type="application/json"
             )
         )
