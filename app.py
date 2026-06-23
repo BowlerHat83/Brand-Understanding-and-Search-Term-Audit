@@ -187,7 +187,7 @@ if st.session_state.stage == 1:
             parts = option.split(" | ")
             unique_brands.add(parts[0].strip())
             
-    brand_list = ["Create New"] + sorted(list(unique_brands), key=str.lower)
+    brand_list = ["-Please Select-", "Create New"] + sorted(list(unique_brands), key=str.lower)
     
     # --- CASCADING INTERFACE BLOCKS ---
     col_b1, col_b2 = st.columns(2)
@@ -198,7 +198,7 @@ if st.session_state.stage == 1:
     selected_cache = "Create New"
     
     with col_b2:
-        if selected_brand_tier != "Create New":
+        if selected_brand_tier not in ["-Please Select-", "Create New"]:
             # Extract sub-components matching chosen brand portfolio
             matching_workspaces = []
             for option in cache_options:
@@ -206,42 +206,59 @@ if st.session_state.stage == 1:
                     workspace_suffix = option.replace(f"{selected_brand_tier} | ", "").strip()
                     matching_workspaces.append(workspace_suffix)
             
-            selected_workspace_tier = st.selectbox(
-                "🎯 Select Active Campaign / Ad Group Workspace", 
-                options=sorted(matching_workspaces, key=str.lower)
-            )
+            # Auto-inject safety fallback to force active choice selection
+            workspace_options = ["-Please Select-"] + sorted(matching_workspaces, key=str.lower)
+            selected_workspace_tier = st.selectbox("🎯 Select Active Campaign / Ad Group Workspace", options=workspace_options, index=0)
             
-            if selected_workspace_tier:
+            if selected_workspace_tier != "-Please Select-":
                 selected_cache = f"{selected_brand_tier} | {selected_workspace_tier}"
+            else:
+                selected_cache = "-Please Select-"
         else:
-            st.selectbox("🎯 Select Active Campaign Workspace", options=["N/A - Creating New Brand Profile"], disabled=True)
+            st.selectbox("🎯 Select Active Campaign Workspace", options=["N/A - Choose Portfolio Entry"], disabled=True)
     
     st.markdown("---")
     
-    if selected_cache != "Create New":
+    # --- SCENARIO A: BLOCKED ON SELECT ---
+    if selected_cache == "-Please Select-" or selected_brand_tier == "-Please Select-":
+        st.info("👋 Please select a valid Brand Portfolio and Ad Group Workspace to load parameters, or choose 'Create New'.")
+        st.session_state.brand_profile = None
+        st.session_state.locked_rules = None
+
+    # --- SCENARIO B: ACTIVE LOAD FROM CACHE ---
+    elif selected_cache != "Create New":
         if st.session_state.brand_profile is None or st.session_state.get('cache_key') != selected_cache:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
                 
                 cache_parts = selected_cache.split(" | ")
-                if len(cache_parts) == 3:
-                    st.session_state.temp_brand_name = cache_parts[0]
-                    st.session_state.temp_campaign_type = cache_parts[1]
-                    st.session_state.temp_ad_group_name = cache_parts[2]
-                else:
-                    st.session_state.temp_brand_name = cache_parts[0]
-                    st.session_state.temp_campaign_type = cache_parts[1] if len(cache_parts) > 1 else "Search"
-                    st.session_state.temp_ad_group_name = cache_parts[2] if len(cache_parts) > 2 else ""
+                st.session_state.temp_brand_name = cache_parts[0]
+                st.session_state.temp_campaign_type = cache_parts[1] if len(cache_parts) > 1 else "Search"
+                st.session_state.temp_ad_group_name = cache_parts[2] if len(cache_parts) > 2 else ""
                     
                 st.session_state.locked_rules = st.session_state.brand_profile
                 st.session_state.cache_key = selected_cache
             except Exception as e:
-                st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFailed loading profile asset framework configuration. Details: {str(e)}")
+                st.error(f"🔧 **Error Code: E005**\n\nFailed loading profile framework: {str(e)}")
                 
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
+        # Outputs rendered exclusively as locked selectboxes
+        row1_left, row1_right = st.columns(2)
+        with row1_left:
+            st.selectbox("Brand Name", options=[st.session_state.temp_brand_name], disabled=True)
+        with row1_right:
+            st.selectbox("Campaign Type", options=[st.session_state.temp_campaign_type], disabled=True)
+            
+        row2_left, row2_right = st.columns(2)
+        with row2_left:
+            st.selectbox("Ad Group Name", options=[st.session_state.temp_ad_group_name], disabled=True)
+        with row2_right:
+            st.text_input("Core Offering of the Ad Group", value="Loaded from Cache Base", disabled=True)
+
+    # --- SCENARIO C: FRESH PROFILE BUILDER ---
     else:
-        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') != "Create New":
+        if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') not in ["Create New", "-Please Select-"]:
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
             
@@ -253,19 +270,19 @@ if st.session_state.stage == 1:
             
         row2_left, row2_right = st.columns(2)
         with row2_left:
-            ad_group_name = st.text_input("Ad Group Name", value="", placeholder="e.g., Competitor_Conversions_USA")
+            ad_group_name = st.text_input("Ad Group Name", value="", placeholder="e.g., Competitor_Conversions")
         with row2_right:
-            core_offering = st.text_input("Core Offering of the Ad Group", value="", placeholder="What is this ad group selling? (Used for AI Context)")
+            core_offering = st.text_input("Core Offering of the Ad Group", value="", placeholder="What is this ad group selling?")
             
         landing_pages = st.text_area(
             "Target Landing Page Links & Context (One link per line)", 
-            placeholder="https://client.com/pricing\nhttps://client.com/remarketing-resource",
+            placeholder="https://client.com/pricing",
             height=120
         )
         
         if st.button("Launch Brand Understanding Audit"):
             if not brand_name or campaign_type == "-Please Select-" or not ad_group_name or not core_offering or not landing_pages:
-                st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nOne or more required input fields were left blank or unselected.")
+                st.error("🛑 **Error Code: E001 - Missing Input Parameters**\n\nPlease satisfy all input configurations and select valid choices.")
             else:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -292,13 +309,7 @@ if st.session_state.stage == 1:
                 except Exception as e:
                     progress_bar.empty()
                     status_text.empty()
-                    err_str = str(e).lower()
-                    if "429" in err_str or "quota" in err_str:
-                        st.error("🛑 **Error Code: E003 - API Quota Exhausted**\n\nThe API speed limit was hit. Please pause for 60 seconds.")
-                    elif "gemini" in err_str:
-                        st.error("📡 **Error Code: E004 - Cloud Connection Dropped**\n\nThe connection to the Google Cloud AI loop was dropped mid-process.")
-                    else:
-                        st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nAn unexpected backend processing anomaly occurred. Details: {str(e)}")
+                    st.error(f"🔧 **Error Code: E005**\n\nAn unexpected processing error occurred: {str(e)}")
 
     st.session_state.last_selected_cache = selected_cache
 
