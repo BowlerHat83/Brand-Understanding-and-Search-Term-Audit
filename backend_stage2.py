@@ -11,7 +11,7 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    model = genai.GenerativeModel('gemini-1.5-flash') # Faster model optimized for batch classification
+    model = genai.GenerativeModel('gemini-2.5-flash') # Faster model optimized for batch classification
     
     # Format the ruleset for the model context
     rules_context = json.dumps(brand_profile, indent=2)
