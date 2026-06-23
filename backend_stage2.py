@@ -1,26 +1,35 @@
 import json
 import re
 from collections import Counter
+from typing import List, Literal
+from pydantic import BaseModel, Field
 import streamlit as st
 from google import genai
 from google.genai import types
 
+# --- FORCE STRUCTURAL SCHEMA VALIDATION AT CORES ---
+class KeywordClassification(BaseModel):
+    search_term: str = Field(description="The exact raw search term provided in the input batch.")
+    classification: Literal["relevant", "irrelevant", "review"] = Field(description="Strict classification value choice.")
+    confidence: float = Field(description="Confidence rating between 0.0 and 1.0.")
+    reason: str = Field(description="Clear, concise operational reasoning for this bucket placement.")
+
+class BatchClassificationResponse(BaseModel):
+    results: List[KeywordClassification]
+
+
 def classify_terms_batch(search_terms, brand_profile):
     """
-    Evaluates a batch of search terms using the original working logic setup.
-    CRITICAL: Fallback arrays are disabled to force raw traceback visibility.
+    Evaluates a batch of search terms using structural schemas to prevent 503/JSON parsing failures.
     """
     
-    # Reverted back to the original working layout instruction string
     system_instruction = (
         "You are an automated Google Ads helper tool. Classify the provided search terms into "
         "one of three buckets based on the brand profile:\n"
         "1. 'relevant' - if the term matches or is highly related to the core business offerings.\n"
         "2. 'irrelevant' - if the term is completely unrelated or matches known competitor names.\n"
         "3. 'review' - if you are unsure or the term is borderline.\n\n"
-        "Return a valid JSON array of objects matching the input perfectly. Each object must contain "
-        "EXACTLY these keys:\n"
-        '{"search_term": "string", "classification": "relevant", "confidence": 1.0, "reason": "string"}'
+        "You must return data strictly conforming to the requested schema layout structure."
     )
 
     prompt_payload = f"""
@@ -47,17 +56,22 @@ def classify_terms_batch(search_terms, brand_profile):
             contents=prompt_payload,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.1,  # Kept low to enforce conservative choices safely
-                response_mime_type="application/json"
+                temperature=0.1,  # Rigid, analytical configuration posture
+                response_mime_type="application/json",
+                response_schema=BatchClassificationResponse,  # Direct structural enforcement link
             )
         )
         
-        cleaned_response = response.text.strip().strip("`").replace("json\n", "")
-        results = json.loads(cleaned_response)
-        return results
+        # Parse output safely using the structural schema validation layer
+        raw_text = response.text.strip()
+        parsed_response = json.loads(raw_text)
+        
+        # Extract the results array to match what app.py expects natively
+        if "results" in parsed_response:
+            return parsed_response["results"]
+        return parsed_response
 
     except Exception as e:
-        # --- DEBUG MODE ACTIVE ---
         # Forcibly crash the application and print the exact system exception error trace to the UI
         raise e
 
