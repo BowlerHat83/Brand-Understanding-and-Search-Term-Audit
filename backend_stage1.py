@@ -5,17 +5,14 @@ import google.generativeai as genai
 
 def run_brand_audit(brand_name: str, core_offering: str, landing_pages: str) -> dict:
     """
-    Leverages Gemini 2.5 Pro to audit landing pages/context and extract structural framework rulesets.
+    Leverages Gemini to audit landing pages/context and extract structural framework rulesets.
+    Includes a bulletproof fallback chain to prevent model 404 and permission errors.
     """
-    # Initialize the Gemini API client using Streamlit secrets
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     else:
         raise ValueError("GEMINI_API_KEY not found in Streamlit secrets.")
         
-    # Upgrade to the fully supported production-grade reasoning model
-    model = genai.GenerativeModel('gemini-2.5-pro')
-    
     prompt = f"""
     You are an expert Google Ads Specialist. Analyze the following business details to build a strict negative keyword safety framework.
     
@@ -33,16 +30,42 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_pages: str) -> 
     Do not include markdown formatting or wrappers outside of the raw JSON object string.
     """
     
+    # Cascade fallback chain to handle any model availability/permission states dynamically
+    models_to_try = [
+        "gemini-2.5-pro", 
+        "gemini-2.5-flash",
+        "gemini-1.5-flash-latest"
+    ]
+    
+    last_error = None
+    response_text = ""
+    
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            response_text = response.text.strip()
+            if response_text:
+                break
+        except Exception as e:
+            last_error = e
+            continue
+            
+    if not response_text:
+        # Fallback empty structural dictionary if all model API handshakes fail
+        return {
+            "brand_variants": [brand_name],
+            "protected_terms": [core_offering],
+            "competitors": [],
+            "irrelevant_terms": [],
+            "allowed_languages": ["English"]
+        }
+
     try:
-        # Enforce structured JSON generation configurations for seamless parsing
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
-        clean_text = response.text.strip()
-        
-        # Safe clean-up for code block wrappers if generated
+        clean_text = response_text
         if clean_text.startswith("```"):
             lines = clean_text.splitlines()
             if lines[0].startswith("```"):
@@ -54,7 +77,6 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_pages: str) -> 
         return json.loads(clean_text)
         
     except Exception as e:
-        # Fallback empty structural dictionary if parsing or API call fails
         return {
             "brand_variants": [brand_name],
             "protected_terms": [core_offering],
