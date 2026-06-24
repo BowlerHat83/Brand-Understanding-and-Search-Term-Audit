@@ -5,7 +5,7 @@ import google.generativeai as genai
 
 def run_brand_audit(brand_name: str, core_offering: str, landing_pages: str) -> dict:
     """
-    Leverages Gemini to audit landing pages/context and extract structural framework rulesets.
+    Leverages Gemini 2.5 Pro to audit landing pages/context and extract structural framework rulesets.
     """
     # Initialize the Gemini API client using Streamlit secrets
     if "GEMINI_API_KEY" in st.secrets:
@@ -13,7 +13,8 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_pages: str) -> 
     else:
         raise ValueError("GEMINI_API_KEY not found in Streamlit secrets.")
         
-    model = genai.GenerativeModel('gemini-1.5-pro') # Or your preferred stable model
+    # Upgrade to the fully supported production-grade reasoning model
+    model = genai.GenerativeModel('gemini-2.5-pro')
     
     prompt = f"""
     You are an expert Google Ads Specialist. Analyze the following business details to build a strict negative keyword safety framework.
@@ -32,16 +33,28 @@ def run_brand_audit(brand_name: str, core_offering: str, landing_pages: str) -> 
     Do not include markdown formatting or wrappers outside of the raw JSON object string.
     """
     
-    response = model.generate_content(prompt)
-    
-    # Strip away any potential markdown code blocks if the model returned them
-    clean_text = response.text.strip().lstrip("```json").rstrip("```")
-    
     try:
-        profile_data = json.loads(clean_text)
-        return profile_data
+        # Enforce structured JSON generation configurations for seamless parsing
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        
+        clean_text = response.text.strip()
+        
+        # Safe clean-up for code block wrappers if generated
+        if clean_text.startswith("```"):
+            lines = clean_text.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            clean_text = "\n".join(lines).strip()
+            
+        return json.loads(clean_text)
+        
     except Exception as e:
-        # Fallback empty structural dictionary if parsing fails
+        # Fallback empty structural dictionary if parsing or API call fails
         return {
             "brand_variants": [brand_name],
             "protected_terms": [core_offering],
