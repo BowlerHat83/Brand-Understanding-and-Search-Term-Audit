@@ -69,6 +69,11 @@ def push_to_google_sheets(cache_key: str, payload: dict) -> str:
             data_matrix = [headers]
             for r in rows:
                 data_matrix.append([str(r.get(h, "")) for h in headers])
-            worksheet.update(range_name="A1", values=data_matrix)
+                
+            # -------------------------------------------------------------------------
+            # 🔄 VERSION-PROOF UPDATE SYNTAX (Fixes modern gspread argument errors)
+            # -------------------------------------------------------------------------
+            worksheet.update(values=data_matrix, range_name="A1")
+            # -------------------------------------------------------------------------
             
     return f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
