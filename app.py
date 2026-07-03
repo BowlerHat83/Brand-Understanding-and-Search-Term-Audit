@@ -12,12 +12,13 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # =========================================================================
-# 🚨 TEMPORARY FORCE-PURGE TRIGGER (Delete this block after running once!)
+# 🚨 REINFORCED TEMPORARY PURGE TRIGGER (Delete this block after running once!)
 # =========================================================================
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
-if st.checkbox("⚠️ Check this box ONE TIME to completely wipe the full robot storage bucket"):
+if st.checkbox("⚠️ Check this box ONE TIME to completely wipe the robot storage bucket"):
     st.write("Initiating storage clear...")
     try:
         scope = ["https://www.googleapis.com/auth/drive"]
@@ -33,10 +34,19 @@ if st.checkbox("⚠️ Check this box ONE TIME to completely wipe the full robot
             st.success("The storage bucket is already completely empty! You are safe to delete this code.")
         else:
             deleted_count = 0
+            skipped_count = 0
             for file in files:
-                drive_service.files().delete(fileId=file['id']).execute()
-                deleted_count += 1
-            st.success(f"🔥 Success! Forcefully deleted {deleted_count} files. Storage reset to 0%. You can now delete this code block from app.py!")
+                try:
+                    drive_service.files().delete(fileId=file['id']).execute()
+                    deleted_count += 1
+                except HttpError as e:
+                    if e.resp.status == 403:
+                        # Skip files the robot doesn't own or have write access to
+                        skipped_count += 1
+                        continue
+                    else:
+                        raise e
+            st.success(f"🔥 Success! Forcefully deleted {deleted_count} files owned by the robot. (Skipped {skipped_count} shared files). Storage reset! You can now safely delete this code block from app.py.")
     except Exception as e:
         st.error(f"Purge failed: {e}")
 st.markdown("---")
