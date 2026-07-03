@@ -1,16 +1,46 @@
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from datetime import datetime, timedelta, timezone
 import streamlit as st
 
 def push_to_google_sheets(cache_key: str, payload: dict) -> str:
     """
     Creates a detailed multi-tab optimization workbook and passes back the public URL.
+    Automatically purges sheets older than 5 days from the service account to protect the quota.
     """
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+    
+    # -------------------------------------------------------------------------
+    # 🧼 STORAGE AUTO-PURGE PIPELINE (Fixes Quota Error E005)
+    # -------------------------------------------------------------------------
+    try:
+        # Connect explicitly to the Google Drive API service
+        drive_service = build('drive', 'v3', credentials=creds)
+        
+        # Calculate the cutoff timestamp for 5 days ago
+        five_days_ago = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+        
+        # Look for Google Sheets older than 5 days owned by this account
+        query = f"mimeType = 'application/vnd.google-apps.spreadsheet' and modifiedTime < '{five_days_ago}'"
+        
+        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+        files_to_delete = results.get('files', [])
+        
+        # Permanently delete expired spreadsheets to clear up storage space
+        for file in files_to_delete:
+            drive_service.files().delete(fileId=file['id']).execute()
+            
+    except Exception as purge_error:
+        # Soft-fail so that if the cleanup has an issue, it doesn't break the main app
+        pass
+    # -------------------------------------------------------------------------
+
+    # Authorize gspread to handle the sheet creation
     gc = gspread.authorize(creds)
     
     # Create a fresh spreadsheet workbook
@@ -18,7 +48,6 @@ def push_to_google_sheets(cache_key: str, payload: dict) -> str:
     spreadsheet = gc.create(sheet_title)
     
     # Share it so that the user can open the link
-    # NOTE: In a production environment, you might share with a specific email or make public via link
     spreadsheet.share('', perm_type='anyone', role='viewer')
     
     # Populate Tabs based on the incoming dictionary payload keys
