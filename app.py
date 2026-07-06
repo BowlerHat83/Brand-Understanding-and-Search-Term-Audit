@@ -583,8 +583,7 @@ if st.session_state.audit_results:
         st.session_state.select_all_triage = False
 
     # 2. Split Screen Layout: 50/50 Division
-    # 2. Split Screen Layout: 50/50 Division
-    # 2. Split Screen Layout: 50/50 Division
+  # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
     # --- LEFT SIDE: CLEAN TRIAGE CONTAINER ---
@@ -605,7 +604,7 @@ if st.session_state.audit_results:
                 majority_selected = checked_count > (total_items / 2)
                 toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
                 
-                # Clean, Native Action Control Buttons Array Header (No custom color logic)
+                # Clean, Native Action Control Buttons Array Header (Explicitly Unstyled)
                 act_col1, act_col2, act_col3 = st.columns(3)
                 
                 if act_col1.button(toggle_label, use_container_width=True):
@@ -692,7 +691,7 @@ if st.session_state.audit_results:
     # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
     
-    # Padding Custom CSS Blocks
+    # Generic Padding Container Configurations
     st.markdown("""
         <style>
             div[data-testid="stExpander"] div[role="region"] {
@@ -711,95 +710,99 @@ if st.session_state.audit_results:
         </style>
     """, unsafe_allow_html=True)
 
-    foot_col1, foot_col2, foot_col3 = st.columns(3)
-    
-    # Control Button A: Download Workbook Ledger (Green Variant Tint)
-    with foot_col1:
-        st.markdown("""
-            <style>
-                div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
-                    background-color: #2E7D32 !important;
-                    color: white !important;
-                    border: 1px solid #1B5E20 !important;
+    # Creating a uniquely trackable parent container block for the footer elements
+    footer_container = st.container()
+    with footer_container:
+        foot_col1, foot_col2, foot_col3 = st.columns(3)
+        
+        # Control Button A: Download Workbook Ledger (Isolated Green Styles)
+        with foot_col1:
+            st.markdown("""
+                <style>
+                    /* Target buttons ONLY within horizontal column layout blocks inside the trailing content section */
+                    div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
+                        background-color: #2E7D32 !important;
+                        color: white !important;
+                        border: 1px solid #1B5E20 !important;
+                    }
+                    div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(1) button:hover {
+                        background-color: #1B5E20 !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            if st.button("🚀 Download Workbook Ledger", use_container_width=True):
+                payload = {
+                    "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
+                    "Relevant Search Terms": res_data["relevant"],
+                    "Irrelevant Search Terms": res_data["irrelevant"],
+                    "Review Queue": res_data["review"],
+                    "Potentially Overlooked": res_data["overlooked"],
+                    "Root Negatives": res_data["roots"]
                 }
-                div[data-testid="stHorizontalBlock"] > div:nth-child(1) button:hover {
-                    background-color: #1B5E20 !important;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-        if st.button("🚀 Download Workbook Ledger", use_container_width=True):
-            payload = {
-                "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
-                "Relevant Search Terms": res_data["relevant"],
-                "Irrelevant Search Terms": res_data["irrelevant"],
-                "Review Queue": res_data["review"],
-                "Potentially Overlooked": res_data["overlooked"],
-                "Root Negatives": res_data["roots"]
-            }
-            with st.spinner("Provisioning real-time Google Sheet asset structure..."):
-                try:
-                    direct_url = push_to_google_sheets(st.session_state.cache_key, payload)
-                    st.success("Google Sheets Asset generated successfully!")
-                    st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
-                except Exception as e:
-                    st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
+                with st.spinner("Provisioning real-time Google Sheet asset structure..."):
+                    try:
+                        direct_url = push_to_google_sheets(st.session_state.cache_key, payload)
+                        st.success("Google Sheets Asset generated successfully!")
+                        st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
+                    except Exception as e:
+                        st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
 
-    # Control Button B: Cache Audit Into Brand Knowledge Database Row Range (Red Variant Tint)
-    with foot_col2:
-        st.markdown("""
-            <style>
-                div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
-                    background-color: #C62828 !important;
-                    color: white !important;
-                    border: 1px solid #B71C1C !important;
-                }
-                div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:hover {
-                    background-color: #B71C1C !important;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-        if st.button("💾 Cache Audit into Brand Knowledge", use_container_width=True):
-            with st.spinner("Committing verified session definitions directly to cloud master ledger cache..."):
-                raw_cache_key = st.session_state.cache_key
-                profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
-                
-                rel_payload = [r["Search Term"] for r in res_data["relevant"]]
-                irr_payload = [i["Search Term"] for i in res_data["irrelevant"]]
-                
-                success = update_brand_profile_cache(
-                    cache_key=profile_sig,
-                    new_relevant_terms=rel_payload,
-                    new_irrelevant_terms=irr_payload
-                )
-                if success:
-                    st.success("Cloud database successfully trained with current session intelligence metrics parameters!")
-                else:
-                    st.error("Pipeline connectivity error tracking database parameters back into cloud rows layer.")
-
-    # Control Button C: Start Fresh Engine Matrix Audit Run (Blue Variant Tint)
-    with foot_col3:
-        st.markdown("""
-            <style>
-                div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
-                    background-color: #1565C0 !important;
-                    color: white !important;
-                    border: 1px solid #0D47A1 !important;
-                }
-                div[data-testid="stHorizontalBlock"] > div:nth-child(3) button:hover {
-                    background-color: #0D47A1 !important;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-        if st.button("🔄 Start New Audit", use_container_width=True):
-            for index, term in enumerate(st.session_state.get("triage_list", [])):
-                key_to_clear = f"triage_chk_row_{term}_{index}"
-                if key_to_clear in st.session_state:
-                    del st.session_state[key_to_clear]
+        # Control Button B: Cache Audit Into Brand Knowledge Database Row Range (Isolated Red Styles)
+        with foot_col2:
+            st.markdown("""
+                <style>
+                    div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
+                        background-color: #C62828 !important;
+                        color: white !important;
+                        border: 1px solid #B71C1C !important;
+                    }
+                    div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:hover {
+                        background-color: #B71C1C !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            if st.button("💾 Cache Audit into Brand Knowledge", use_container_width=True):
+                with st.spinner("Committing verified session definitions directly to cloud master ledger cache..."):
+                    raw_cache_key = st.session_state.cache_key
+                    profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
                     
-            if "triage_list" in st.session_state:
-                del st.session_state.triage_list
-            st.session_state.stage = 1
-            st.session_state.brand_profile = None
-            st.session_state.locked_rules = None
-            st.session_state.audit_results = None
-            st.rerun()
+                    rel_payload = [r["Search Term"] for r in res_data["relevant"]]
+                    irr_payload = [i["Search Term"] for i in res_data["irrelevant"]]
+                    
+                    success = update_brand_profile_cache(
+                        cache_key=profile_sig,
+                        new_relevant_terms=rel_payload,
+                        new_irrelevant_terms=irr_payload
+                    )
+                    if success:
+                        st.success("Cloud database successfully trained with current session intelligence metrics parameters!")
+                    else:
+                        st.error("Pipeline connectivity error tracking database parameters back into cloud rows layer.")
+
+        # Control Button C: Start Fresh Engine Matrix Audit Run (Isolated Blue Styles)
+        with foot_col3:
+            st.markdown("""
+                <style>
+                    div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
+                        background-color: #1565C0 !important;
+                        color: white !important;
+                        border: 1px solid #0D47A1 !important;
+                    }
+                    div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(3) button:hover {
+                        background-color: #0D47A1 !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            if st.button("🔄 Start New Audit", use_container_width=True):
+                for index, term in enumerate(st.session_state.get("triage_list", [])):
+                    key_to_clear = f"triage_chk_row_{term}_{index}"
+                    if key_to_clear in st.session_state:
+                        del st.session_state[key_to_clear]
+                        
+                if "triage_list" in st.session_state:
+                    del st.session_state.triage_list
+                st.session_state.stage = 1
+                st.session_state.brand_profile = None
+                st.session_state.locked_rules = None
+                st.session_state.audit_results = None
+                st.rerun()
