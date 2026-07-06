@@ -633,7 +633,7 @@ if st.session_state.audit_results:
         
     st.markdown("<br><br>", unsafe_allow_html=True)
     
-    # --- ARTIFACT GENERATION & WORKSPACE RETURNING ---
+   # --- ARTIFACT GENERATION & WORKSPACE RETURNING ---
     col_out1, col_out2 = st.columns([2, 1])
     with col_out1:
         st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
@@ -662,4 +662,11 @@ if st.session_state.audit_results:
                 except Exception as e:
                     st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
                     
-        if st.button("
+        if st.button("🔄 Start New Audit", use_container_width=True):
+            if "triage_list" in st.session_state:
+                del st.session_state.triage_list
+            st.session_state.stage = 1
+            st.session_state.brand_profile = None
+            st.session_state.locked_rules = None
+            st.session_state.audit_results = None
+            st.rerun()
