@@ -94,6 +94,86 @@ def update_brand_profile_cache(cache_key: str, new_relevant_terms: list, new_irr
         clean_term = str(term).strip()
         if clean_term.lower() not in [x.lower() for x in existing_protected_list]:
             existing_protected_list.append(clean_term)
+
+
+def update_brand_profile_cache(cache_key, new_relevant_terms=None, new_irrelevant_terms=None):
+    """
+    Appends freshly triaged human feedback terms back into the Stage 1 Google Sheet 
+    cache layer to permanently train the brand profile.
+    """
+    try:
+        import streamlit as st
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        # 1. Authenticate with Google Sheets using existing credentials
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        gc = gspread.authorize(creds)
+        
+        # 2. Open the cache sheet
+        sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
+        records = sheet.get_all_records()
+        
+        # Helper function to parse existing cell strings back into clean sets
+        def parse_cell_to_set(val):
+            if not val:
+                return set()
+            return {item.strip() for item in str(val).split(",") if item.strip()}
+
+        # 3. Search for the row matching the brand signature
+        row_index = None
+        target_row = None
+        for idx, row in enumerate(records, start=2):
+            # Match against the base profile name (e.g., "Brand Name")
+            if str(row.get("Profile Name", "")).split(" | ")[0].strip() == str(cache_key).split(" | ")[0].strip():
+                row_index = idx
+                target_row = row
+                break
+                
+        if not row_index:
+            # Fallback: if no exact profile row is found, we cannot patch it safely
+            return False
+
+        # 4. Pull existing arrays from sheet row
+        current_variants = parse_cell_to_set(target_row.get("Brand Variants", ""))
+        current_protected = parse_cell_to_set(target_row.get("Protected Terms", ""))
+        current_competitors = parse_cell_to_set(target_row.get("Competitors", ""))
+        current_irrelevant = parse_cell_to_set(target_row.get("Irrelevant Terms", ""))
+        current_languages = target_row.get("Allowed Languages", "English")
+
+        # 5. Inject the new human-approved items into the right buckets
+        if new_relevant_terms:
+            for term in new_relevant_terms:
+                # Relevant user selections are highly likely to be core protected offering descriptors
+                current_protected.add(term.strip())
+                
+        if new_irrelevant_terms:
+            for term in new_irrelevant_terms:
+                # Irrelevant user selections expand your negative target definitions
+                current_irrelevant.add(term.strip())
+
+        # 6. Re-compile lists back into comma-separated text strings
+        row_payload = [
+            target_row.get("Profile Name"),
+            ", ".join(sorted(list(current_variants))),
+            ", ".join(sorted(list(current_protected))),
+            ", ".join(sorted(list(current_competitors))),
+            ", ".join(sorted(list(current_irrelevant))),
+            current_languages
+        ]
+        
+        # 7. Commit changes back to Google Sheets row range
+        sheet.update(range_name=f"A{row_index}:F{row_index}", values=[row_payload])
+        return True
+
+    except Exception as e:
+        # Prevent breaking the application state flow if Google API drops
+        print(f"Error logging triage feedback to sheet: {str(e)}")
+        return False
             
     updated_protected_cell_string = ", ".join(existing_protected_list)
 
