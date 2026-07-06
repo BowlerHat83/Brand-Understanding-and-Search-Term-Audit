@@ -584,98 +584,98 @@ if st.session_state.get("audit_results") is not None:
 
     # 2. Split Screen Layout: 50/50 Division
     # 2. Split Screen Layout: 50/50 Division
+    # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
-    # --- LEFT SIDE: CLEAN TRIAGE CONTAINER ---
+    # --- LEFT SIDE: CLEAN TRIAGE CONTAINER (NO EXPANDER DROPDOWN) ---
     with split_left:
         st.subheader("🔍 Review & Triage Queue Ledger Table")
         st.caption("Select items using the checkboxes below and route them to their target database destination.")
         
-        with st.expander("Expand Active Triage Operational Queue", expanded=True):
-            if st.session_state.triage_list:
-                
-                # --- DYNAMIC SMART TOGGLE TEXT CALCULATOR ---
-                checked_count = 0
+        if st.session_state.triage_list:
+            
+            # --- DYNAMIC SMART TOGGLE TEXT CALCULATOR ---
+            checked_count = 0
+            for index, term in enumerate(st.session_state.triage_list):
+                if st.session_state.get(f"triage_chk_row_{term}_{index}", False):
+                    checked_count += 1
+            
+            total_items = len(st.session_state.triage_list)
+            majority_selected = checked_count > (total_items / 2)
+            toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
+            
+            # Clean, Native Action Control Buttons Array Header
+            act_col1, act_col2, act_col3 = st.columns(3)
+            
+            if act_col1.button(toggle_label, use_container_width=True):
+                target_state = not majority_selected
                 for index, term in enumerate(st.session_state.triage_list):
-                    if st.session_state.get(f"triage_chk_row_{term}_{index}", False):
-                        checked_count += 1
+                    st.session_state[f"triage_chk_row_{term}_{index}"] = target_state
+                st.rerun()
                 
-                total_items = len(st.session_state.triage_list)
-                majority_selected = checked_count > (total_items / 2)
-                toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
-                
-                # Clean, Native Action Control Buttons Array Header
-                act_col1, act_col2, act_col3 = st.columns(3)
-                
-                if act_col1.button(toggle_label, use_container_width=True):
-                    target_state = not majority_selected
-                    for index, term in enumerate(st.session_state.triage_list):
-                        st.session_state[f"triage_chk_row_{term}_{index}"] = target_state
-                    st.rerun()
+            trigger_move_relevant = act_col2.button("👍 Move to Relevant", use_container_width=True)
+            trigger_move_irrelevant = act_col3.button("👎 Move to Irrelevant", use_container_width=True)
+            
+            selected_terms = []
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # --- FIXED HEIGHT NATIVE SCROLL CONTAINER (MAINTAINED AT EXACTLY 350PX) ---
+            with st.container(height=350):
+                for index, term in enumerate(st.session_state.triage_list):
+                    row_cols = st.columns([1, 9])
                     
-                trigger_move_relevant = act_col2.button("👍 Move to Relevant", use_container_width=True)
-                trigger_move_irrelevant = act_col3.button("👎 Move to Irrelevant", use_container_width=True)
-                
-                selected_terms = []
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                # --- FIXED HEIGHT NATIVE SCROLL CONTAINER (MATCHES TEXT AREA HEIGHT) ---
-                with st.container(height=350):
-                    for index, term in enumerate(st.session_state.triage_list):
-                        row_cols = st.columns([1, 9])
-                        
-                        is_selected = row_cols[0].checkbox(
-                            " ", 
-                            key=f"triage_chk_row_{term}_{index}",
-                            label_visibility="collapsed"
-                        )
-                        row_cols[1].text(term)
-                        
-                        if is_selected:
-                            selected_terms.append(term)
-                # -----------------------------------------------------------------------------
-                        
-                # Route Actions Processing Block
-                if trigger_move_relevant or trigger_move_irrelevant:
-                    if not selected_terms:
-                        st.warning("⚠️ Please select items using the checkboxes or use the toggle button first.")
+                    is_selected = row_cols[0].checkbox(
+                        " ", 
+                        key=f"triage_chk_row_{term}_{index}",
+                        label_visibility="collapsed"
+                    )
+                    row_cols[1].text(term)
+                    
+                    if is_selected:
+                        selected_terms.append(term)
+            # -----------------------------------------------------------------------------
+                    
+            # Route Actions Processing Block
+            if trigger_move_relevant or trigger_move_irrelevant:
+                if not selected_terms:
+                    st.warning("⚠️ Please select items using the checkboxes or use the toggle button first.")
+                else:
+                    is_rel = trigger_move_relevant
+                    
+                    if is_rel:
+                        for t in selected_terms:
+                            if not any(r["Search Term"] == t for r in res_data["relevant"]):
+                                res_data["relevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
                     else:
-                        is_rel = trigger_move_relevant
-                        
-                        if is_rel:
-                            for t in selected_terms:
-                                if not any(r["Search Term"] == t for r in res_data["relevant"]):
-                                    res_data["relevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
-                        else:
-                            for t in selected_terms:
-                                if not any(r["Search Term"] == t for r in res_data["irrelevant"]):
-                                    res_data["irrelevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
-                                    notation = apply_ads_notation(t, is_exact=False)
-                                    if notation not in res_data["copy_paste_list"]:
-                                        res_data["copy_paste_list"].append(notation)
-                        
-                        # Clear old state keys from session state
-                        for index, term in enumerate(st.session_state.triage_list):
-                            if term in selected_terms:
-                                key_to_clear = f"triage_chk_row_{term}_{index}"
-                                if key_to_clear in st.session_state:
-                                    del st.session_state[key_to_clear]
-                                    
-                        st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
-                        res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
-                        res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
-                        
-                        # Recalculate metrics
-                        res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
-                        res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
-                        res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
-                        res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
-                        
-                        st.session_state.audit_results = res_data
-                        st.success(f"Successfully routed {len(selected_terms)} terms internally!")
-                        st.rerun()
-            else:
-                st.info("🎉 All items fully triaged inside this active configuration run.")
+                        for t in selected_terms:
+                            if not any(r["Search Term"] == t for r in res_data["irrelevant"]):
+                                res_data["irrelevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
+                                notation = apply_ads_notation(t, is_exact=False)
+                                if notation not in res_data["copy_paste_list"]:
+                                    res_data["copy_paste_list"].append(notation)
+                    
+                    # Clear old state keys from session state
+                    for index, term in enumerate(st.session_state.triage_list):
+                        if term in selected_terms:
+                            key_to_clear = f"triage_chk_row_{term}_{index}"
+                            if key_to_clear in st.session_state:
+                                del st.session_state[key_to_clear]
+                                
+                    st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
+                    res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
+                    res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
+                    
+                    # Recalculate metrics
+                    res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
+                    res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
+                    res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
+                    res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
+                    
+                    st.session_state.audit_results = res_data
+                    st.success(f"Successfully routed {len(selected_terms)} terms internally!")
+                    st.rerun()
+        else:
+            st.info("🎉 All items fully triaged inside this active configuration run.")
 
     # --- RIGHT SIDE: EXACT STYLE COPY-PASTE FORMATTED OUTPUT & OVERLOOKED ---
     with split_right:
@@ -684,7 +684,7 @@ if st.session_state.get("audit_results") is not None:
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
         
-        # Embedded Overlooked Container Dropdown (Keeps heights matching cleanly)
+        # Embedded Overlooked Container Dropdown
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("⚠️ Review Potentially Overlooked Terms Pipeline Ledger", expanded=False):
             overlooked_items = [o["Search Term"] for o in res_data.get("overlooked", [])]
@@ -693,8 +693,6 @@ if st.session_state.get("audit_results") is not None:
                     st.text(f"• {item}")
             else:
                 st.info("No bypass terms detected tracking inside current session threshold parameters.")
-
-    st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
