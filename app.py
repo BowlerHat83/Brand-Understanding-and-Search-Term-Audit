@@ -751,22 +751,30 @@ if st.session_state.get("audit_results") is not None:
                     }
                 </style>
             """, unsafe_allow_html=True)
-            if st.button("🚀 Download Workbook Ledger", use_container_width=True):
-                payload = {
-                    "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
-                    "Relevant Search Terms": res_data["relevant"],
-                    "Irrelevant Search Terms": res_data["irrelevant"],
-                    "Review Queue": res_data["review"],
-                    "Potentially Overlooked": res_data["overlooked"],
-                    "Root Negatives": res_data["roots"]
-                }
-                with st.spinner("Provisioning real-time Google Sheet asset structure..."):
-                    try:
-                        direct_url = push_to_google_sheets(st.session_state.cache_key, payload)
-                        st.success("Google Sheets Asset generated successfully!")
-                        st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
-                    except Exception as e:
-                        st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
+            
+            # Formulate the multi-tab dictionary layout for local flattening processing
+            payload = {
+                "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
+                "Relevant Search Terms": res_data["relevant"],
+                "Irrelevant Search Terms": res_data["irrelevant"],
+                "Review Queue": res_data["review"],
+                "Potentially Overlooked": res_data["overlooked"],
+                "Root Negatives": res_data["roots"]
+            }
+            
+            # Generate the raw data stream using the revamped backend engine
+            csv_stream = push_to_google_sheets(st.session_state.cache_key, payload)
+            
+            if csv_stream is not None:
+                st.download_button(
+                    label="🚀 Download Workbook Ledger (.csv)",
+                    data=csv_stream,
+                    file_name=f"Negative_Optimization_Ledger_{st.session_state.get('cache_key', 'export').replace(' | ', '_')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.error("Matrix stream build failed.")
 
         # Control Button B: Cache Audit Into Brand Knowledge (Red Variant Tint)
         with foot_col2:
