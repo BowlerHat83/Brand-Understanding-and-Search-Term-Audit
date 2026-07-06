@@ -1,85 +1,52 @@
-import gspread
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from datetime import datetime, timedelta, timezone
+import pandas as pd
+import io
 import streamlit as st
-import time
+from datetime import datetime, timezone
 
-def push_to_google_sheets(cache_key: str, payload: dict) -> str:
+def push_to_google_sheets(cache_key: str, payload: dict):
     """
-    Brand New Stage 3 Architecture.
-    Generates a secure, multi-tab Google Sheet ledger using fresh credentials.
-    Features a built-in 5-day rolling auto-purge retention policy.
+    Bypasses Google APIs completely to eliminate 403 Quota errors.
+    Flattens the multi-tab dictionary payload into a single, unified 
+    CSV byte stream for a reliable browser download.
     """
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-    
-    # -------------------------------------------------------------------------
-    # 🧼 5-DAY ROLLING AUTO-PURGE RETENTION POLICY
-    # -------------------------------------------------------------------------
     try:
-        drive_service = build('drive', 'v3', credentials=creds)
+        all_data_frames = []
         
-        # Calculate the strict 5-day cutoff timestamp
-        five_days_ago = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
-        
-        # Identify spreadsheets older than 5 days owned by this service account
-        query = f"mimeType = 'application/vnd.google-apps.spreadsheet' and modifiedTime < '{five_days_ago}'"
-        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-        files_to_delete = results.get('files', [])
-        
-        # Shred expired ledger sheets to dynamically reclaim storage space
-        for file in files_to_delete:
-            drive_service.files().delete(fileId=file['id']).execute()
-            
-    except Exception as maintenance_error:
-        # Soft-fail so code safely proceeds if Drive API hasn't finished propagation
-        pass
-
-    # -------------------------------------------------------------------------
-    # 📊 WORKSHEET COMPILATION ENGINE
-    # -------------------------------------------------------------------------
-    gc = gspread.authorize(creds)
-    
-    # Unique timestamp prevents collision or indexing confusion
-    sheet_title = f"Optimization Ledger ({cache_key}) - {int(time.time())}"
-    spreadsheet = gc.create(sheet_title)
-    
-    # Authorize anonymous link viewing so the frontend user can access it instantly
-    spreadsheet.share('', perm_type='anyone', role='viewer')
-    
-    first_tab = True
-    for tab_name, rows in payload.items():
-        if not rows:
-            continue
-            
-        if first_tab:
-            worksheet = spreadsheet.sheet1
-            worksheet.update_title(tab_name[:30]) # Bound by Google's 30-char tab limit
-            first_tab = False
-        else:
-            worksheet = spreadsheet.add_worksheet(title=tab_name[:30], rows="100", cols="20")
-            
-        if isinstance(rows, list) and len(rows) > 0 and isinstance(rows[0], dict):
-            headers = list(rows[0].keys())
-            data_matrix = [headers]
-            for r in rows:
-                data_matrix.append([str(r.get(h, "")) for h in headers])
+        # Loop through each tab's rows in the payload
+        for tab_name, rows in payload.items():
+            if not rows:
+                continue
                 
-            # Modern, version-proof update layout
-            worksheet.update(values=data_matrix, range_name="A1")
-
-    return f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
-
-# --- ADD THIS TO THE BOTTOM OF YOUR FILE TO FIX THE IMPORT ERROR ---
+            # Convert list of dicts to a DataFrame if data exists
+            if isinstance(rows, list) and len(rows) > 0 and isinstance(rows[0], dict):
+                df = pd.DataFrame(rows)
+                
+                # Insert a clear tag column at the front so you can filter by tab in Google Sheets
+                df.insert(0, 'Source_Tab', tab_name)
+                all_data_frames.append(df)
+        
+        if not all_data_frames:
+            st.error("No valid data found to compile into a CSV ledger.")
+            return None
+            
+        # Combine all sections into one clean, continuous master data table
+        master_df = pd.concat(all_data_frames, ignore_index=True)
+        
+        # Write to a string buffer using standard CSV configuration
+        csv_buffer = io.StringIO()
+        master_df.to_csv(csv_buffer, index=False, encoding='utf-8')
+        
+        # Convert string to bytes stream for Streamlit download handling
+        bytes_data = csv_buffer.getvalue().encode('utf-8')
+        return bytes_data
+        
+    except Exception as e:
+        st.error(f"Local CSV compilation failed: {str(e)}")
+        return None
 
 def update_brand_profile_cache(cache_key: str, profile_data: dict) -> bool:
     """
-    Saves or updates the processed brand profile data in Streamlit's 
-    session state cache to prevent redundant Google Sheets reads.
+    Keeps the backend cache helper available so app.py imports do not break.
     """
     try:
         if 'brand_profile_cache' not in st.session_state:
@@ -93,6 +60,3 @@ def update_brand_profile_cache(cache_key: str, profile_data: dict) -> bool:
     except Exception as e:
         st.warning(f"Cache Sync Warning: {str(e)}")
         return False
-
-
-
