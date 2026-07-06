@@ -547,7 +547,7 @@ elif st.session_state.stage == 2:
 # ==========================================
 # 📊 OUTPUT SUMMARY & BATCH TRIAGE
 # ==========================================
-if st.session_state.audit_results:
+if st.session_state.get("audit_results") is not None:
     res_data = st.session_state.audit_results
     
     st.markdown("---")
@@ -583,7 +583,6 @@ if st.session_state.audit_results:
         st.session_state.select_all_triage = False
 
     # 2. Split Screen Layout: 50/50 Division
-  # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
     # --- LEFT SIDE: CLEAN TRIAGE CONTAINER ---
@@ -604,7 +603,7 @@ if st.session_state.audit_results:
                 majority_selected = checked_count > (total_items / 2)
                 toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
                 
-                # Clean, Native Action Control Buttons Array Header (Explicitly Unstyled)
+                # Clean, Native Action Control Buttons Array Header
                 act_col1, act_col2, act_col3 = st.columns(3)
                 
                 if act_col1.button(toggle_label, use_container_width=True):
@@ -710,16 +709,15 @@ if st.session_state.audit_results:
         </style>
     """, unsafe_allow_html=True)
 
-    # Creating a uniquely trackable parent container block for the footer elements
+    # Unique parent container block to isolate footer colors safely
     footer_container = st.container()
     with footer_container:
         foot_col1, foot_col2, foot_col3 = st.columns(3)
         
-        # Control Button A: Download Workbook Ledger (Isolated Green Styles)
+        # Control Button A: Download Workbook Ledger (Green Variant Tint)
         with foot_col1:
             st.markdown("""
                 <style>
-                    /* Target buttons ONLY within horizontal column layout blocks inside the trailing content section */
                     div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
                         background-color: #2E7D32 !important;
                         color: white !important;
@@ -747,7 +745,7 @@ if st.session_state.audit_results:
                     except Exception as e:
                         st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
 
-        # Control Button B: Cache Audit Into Brand Knowledge Database Row Range (Isolated Red Styles)
+        # Control Button B: Cache Audit Into Brand Knowledge (Red Variant Tint)
         with foot_col2:
             st.markdown("""
                 <style>
@@ -779,7 +777,7 @@ if st.session_state.audit_results:
                     else:
                         st.error("Pipeline connectivity error tracking database parameters back into cloud rows layer.")
 
-        # Control Button C: Start Fresh Engine Matrix Audit Run (Isolated Blue Styles)
+        # Control Button C: Start Fresh Engine Matrix Audit Run (Blue Variant Tint)
         with foot_col3:
             st.markdown("""
                 <style>
@@ -794,15 +792,20 @@ if st.session_state.audit_results:
                 </style>
             """, unsafe_allow_html=True)
             if st.button("🔄 Start New Audit", use_container_width=True):
+                # Clean up row-level verification states safely
                 for index, term in enumerate(st.session_state.get("triage_list", [])):
                     key_to_clear = f"triage_chk_row_{term}_{index}"
                     if key_to_clear in st.session_state:
                         del st.session_state[key_to_clear]
-                        
+                
+                # TOTAL PURGE: Wiping everything from state before calling rerun
                 if "triage_list" in st.session_state:
                     del st.session_state.triage_list
+                if "audit_results" in st.session_state:
+                    del st.session_state.audit_results
+                
+                # Reset operational stage parameters completely
                 st.session_state.stage = 1
                 st.session_state.brand_profile = None
                 st.session_state.locked_rules = None
-                st.session_state.audit_results = None
                 st.rerun()
