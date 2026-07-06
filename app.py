@@ -686,6 +686,8 @@ if st.session_state.audit_results:
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
        st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
+  st.markdown("<br><hr><br>", unsafe_allow_html=True)
+
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
     # =========================================================================
