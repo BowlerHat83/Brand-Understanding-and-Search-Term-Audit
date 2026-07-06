@@ -583,6 +583,7 @@ if st.session_state.get("audit_results") is not None:
         st.session_state.select_all_triage = False
 
     # 2. Split Screen Layout: 50/50 Division
+    # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
     # --- LEFT SIDE: CLEAN TRIAGE CONTAINER ---
@@ -676,12 +677,22 @@ if st.session_state.get("audit_results") is not None:
             else:
                 st.info("🎉 All items fully triaged inside this active configuration run.")
 
-    # --- RIGHT SIDE: EXACT STYLE COPY-PASTE FORMATTED OUTPUT ---
+    # --- RIGHT SIDE: EXACT STYLE COPY-PASTE FORMATTED OUTPUT & OVERLOOKED ---
     with split_right:
         st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
         st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
+        
+        # Embedded Overlooked Container Dropdown (Keeps heights matching cleanly)
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("⚠️ Review Potentially Overlooked Terms Pipeline Ledger", expanded=False):
+            overlooked_items = [o["Search Term"] for o in res_data.get("overlooked", [])]
+            if overlooked_items:
+                for item in overlooked_items:
+                    st.text(f"• {item}")
+            else:
+                st.info("No bypass terms detected tracking inside current session threshold parameters.")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
@@ -792,19 +803,16 @@ if st.session_state.get("audit_results") is not None:
                 </style>
             """, unsafe_allow_html=True)
             if st.button("🔄 Start New Audit", use_container_width=True):
-                # Clean up row-level verification states safely
                 for index, term in enumerate(st.session_state.get("triage_list", [])):
                     key_to_clear = f"triage_chk_row_{term}_{index}"
                     if key_to_clear in st.session_state:
                         del st.session_state[key_to_clear]
                 
-                # TOTAL PURGE: Wiping everything from state before calling rerun
                 if "triage_list" in st.session_state:
                     del st.session_state.triage_list
                 if "audit_results" in st.session_state:
                     del st.session_state.audit_results
                 
-                # Reset operational stage parameters completely
                 st.session_state.stage = 1
                 st.session_state.brand_profile = None
                 st.session_state.locked_rules = None
