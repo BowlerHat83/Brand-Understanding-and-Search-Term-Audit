@@ -372,16 +372,15 @@ if st.session_state.stage == 1:
             st.success("Absolute truth established and updated in cache database. Moving to Stage 2...")
             st.rerun()
 
-
 # ==========================================
-# 📊 STAGE 2: SEARCH TERMS AUDIT
+# 📊 STAGE 2: SEARCH TERMS AUDIT ENGINE
 # ==========================================
 elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"], disabled=st.session_state.audit_running)
     
-    # Optimized large batch structure for balanced performance and processing economics
+    # Optimized batch structure for balanced API economics and performance
     BATCH_SIZE = 100
     
     if uploaded_file:
@@ -395,19 +394,16 @@ elif st.session_state.stage == 2:
                 num_batches = (raw_count + BATCH_SIZE - 1) // BATCH_SIZE
                 
                 paid_seconds = max(int(num_batches * 2.0), 2)
-                if paid_seconds >= 60:
-                    paid_display = f"{paid_seconds // 60} min {paid_seconds % 60} sec" if paid_seconds % 60 > 0 else f"{paid_seconds // 60} min"
-                else:
-                    paid_display = f"{paid_seconds} seconds"
+                paid_display = f"{paid_seconds // 60} min {paid_seconds % 60} sec" if paid_seconds >= 60 else f"{paid_seconds} seconds"
                 
                 st.warning(
                     f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} loops of {BATCH_SIZE} rows).\n\n"
                     f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
-                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. The uploaded file must contain a clear column titled either 'Search Term' or 'Query'.")
+                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. File must contain a column titled either 'Search Term' or 'Query'.")
         except Exception as e:
-            st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown context failure: {str(e)}")
+            st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown: {str(e)}")
 
     button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
     
@@ -422,7 +418,6 @@ elif st.session_state.stage == 2:
         with st.spinner("⏳ Running Search Terms Audit Engine... Please do not close or refresh this tab."):
             try:
                 uploaded_file.seek(0)
-                
                 df_input = pd.read_csv(uploaded_file)
                 term_col = next((c for c in df_input.columns if "search term" in c.lower() or "query" in c.lower()), None)
                 search_terms = df_input[term_col].dropna().drop_duplicates().tolist()
@@ -433,22 +428,14 @@ elif st.session_state.stage == 2:
                 
                 metric_slots = st.columns(5)
                 m1, m2, m3, m4, m5 = (
-                    metric_slots[0].empty(), 
-                    metric_slots[1].empty(), 
-                    metric_slots[2].empty(), 
-                    metric_slots[3].empty(),
-                    metric_slots[4].empty()
+                    metric_slots[0].empty(), metric_slots[1].empty(), 
+                    metric_slots[2].empty(), metric_slots[3].empty(), metric_slots[4].empty()
                 )
                 
-                relevant_list = []
-                irrelevant_list = []
-                review_list = []
-                overlooked_list = []
+                relevant_list, irrelevant_list, review_list, overlooked_list = [], [], [], []
                 processed_terms_set = set()
                 
-                # ========================================================
-                # 🚀 REINFORCED CHUNK PROCESSING LOOP (NO HANGS, NO LOOPS)
-                # ========================================================
+                # --- CHUNK PROCESSING LOOP ---
                 for i in range(0, total_input_count, BATCH_SIZE):
                     batch = search_terms[i:i + BATCH_SIZE]
                     counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
@@ -457,8 +444,7 @@ elif st.session_state.stage == 2:
                     for term in batch:
                         if is_foreign_script(term):
                             irrelevant_list.append({
-                                "Search Term": term,
-                                "Confidence Score": 1.00,
+                                "Search Term": term, "Confidence Score": 1.00,
                                 "Reasoning": "Automated Guardrail: Detected foreign non-Latin alphabet character."
                             })
                             processed_terms_set.add(term)
@@ -467,9 +453,7 @@ elif st.session_state.stage == 2:
 
                     if api_payload_batch:
                         try:
-                            # Direct execution call to backend module
                             batch_results = classify_terms_batch(api_payload_batch, st.session_state.locked_rules)
-                            
                             for res in batch_results:
                                 term_string = res.get("search_term", "")
                                 if term_string:
@@ -485,19 +469,15 @@ elif st.session_state.stage == 2:
                                         irrelevant_list.append(row_data)
                                     else:
                                         review_list.append(row_data)
-                                        
                         except Exception as batch_err:
-                            # SAFETY VALVE: Isolates the broken chunk to prevent permanent execution loop hangs
                             for term in api_payload_batch:
                                 if term not in processed_terms_set:
                                     overlooked_list.append({
-                                        "Search Term": term, 
-                                        "Confidence Score": 0.00, 
+                                        "Search Term": term, "Confidence Score": 0.00,
                                         "Reasoning": f"Batch exception caught: {str(batch_err)}"
                                     })
                                     processed_terms_set.add(term)
                     
-                    # Force metrics and progress indicators to update instantly on viewport
                     percent_complete = int((min(i + BATCH_SIZE, total_input_count) / total_input_count) * 100)
                     progress_bar.progress(percent_complete)
                     
@@ -507,18 +487,14 @@ elif st.session_state.stage == 2:
                     m4.metric("Review Queue 🔍", f"{len(review_list)}")
                     m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
 
-                # Final loop reconciliation pass
                 for term in search_terms:
                     if term not in processed_terms_set:
                         overlooked_list.append({
-                            "Search Term": term, 
-                            "Confidence Score": 0.00, 
-                            "Reasoning": "System reconciliation catch alignment"
+                            "Search Term": term, "Confidence Score": 0.00, "Reasoning": "System reconciliation catch alignment"
                         })
 
                 irr_phrases = [r["Search Term"] for r in irrelevant_list]
                 saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
-                
                 protected_list = st.session_state.locked_rules.get("protected_terms", [])
                 
                 raw_roots = extract_root_negatives(irr_phrases, saved_phrases, protected_list)
@@ -536,18 +512,14 @@ elif st.session_state.stage == 2:
                 for irr in irrelevant_list:
                     phrase = irr["Search Term"]
                     phrase_words = set(re.findall(r'\b\w+\b', phrase.lower()))
-                    
                     protected_words = set()
                     for p_term in protected_list:
                         protected_words.update(re.findall(r'\b\w+\b', p_term.lower()))
                         
-                    contains_protected = bool(phrase_words & protected_words)
-                    
-                    if contains_protected:
+                    if bool(phrase_words & protected_words):
                         final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
-                    else:
-                        if not (phrase_words & active_root_words):
-                            final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
+                    elif not (phrase_words & active_root_words):
+                        final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
                             
                 final_negatives_output = list(set(final_negatives_output))
                 
@@ -560,12 +532,9 @@ elif st.session_state.stage == 2:
                         "Potentially Overlooked Terms": len(overlooked_list),
                         "Extracted Roots Count": len(root_negatives_payload)
                     },
-                    "relevant": relevant_list,
-                    "irrelevant": irrelevant_list,
-                    "review": review_list,
-                    "overlooked": overlooked_list,
-                    "roots": root_negatives_payload,
-                    "copy_paste_list": final_negatives_output
+                    "relevant": relevant_list, "irrelevant": irrelevant_list,
+                    "review": review_list, "overlooked": overlooked_list,
+                    "roots": root_negatives_payload, "copy_paste_list": final_negatives_output
                 }
                 st.session_state.audit_running = False
                 st.success("Analysis matrix generated.")
@@ -573,8 +542,11 @@ elif st.session_state.stage == 2:
                 
             except Exception as main_err:
                 st.session_state.audit_running = False
-                st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCore ledger computation failed on analysis layout execution: {str(main_err)}")
+                st.error(f"🔧 **Error Code: E005** - Computation failed: {str(main_err)}")
 
+# ==========================================
+# 📊 OUTPUT SUMMARY & BATCH TRIAGE
+# ==========================================
 if st.session_state.audit_results:
     res_data = st.session_state.audit_results
     
@@ -582,10 +554,7 @@ if st.session_state.audit_results:
     st.subheader("🛡️ Audit Summary Performance Data")
     
     if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
-        st.warning(
-            f"⚠️ **Notice:** Some search terms bypassed direct categorization and were routed to the overlooked queue to prevent app suspension. "
-            f"Review the isolation layout blocks below."
-        )
+        st.warning("⚠️ **Notice:** Some search terms bypassed direct categorization and were routed to the overlooked queue to prevent app suspension.")
     
     met_cols = st.columns(6)
     metrics_mapping = [
@@ -604,97 +573,67 @@ if st.session_state.audit_results:
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # -------------------------------------------------------------------------
-    # 🧠 NEW INTERACTIVE HUMAN TRIAGE & KNOWLEDGE KICKBACK WORKSPACE
-    # -------------------------------------------------------------------------
+    # --- CENTRAL BULK TRIAGE INTERFACE ---
     st.markdown("### 🧠 Central Human Triage & Knowledge Expansion Engine")
-    st.caption("Classify borderline or ambiguous search queries captured from the audit below to permanently update your profile cache repository.")
+    st.caption("Select items using the checkboxes on the left, then use the master actions at the top to process them in bulk.")
     
+    # Dynamically pull the live profile modifier engine
     from backend_stage3 import update_brand_profile_cache
 
-    triage_terms = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
-    
-    triage_relevant = []
-    triage_irrelevant = []
-    
-    if triage_terms:
-        # Render a clean interface for rapid multi-checkbox selection
-        with st.expander(f"📥 Pending Interactive Triage Channels ({len(triage_terms)} Unresolved Targets)", expanded=True):
-            st.markdown("Select how these terms should be treated long-term:")
-            
-            # Table-style layout headers
-            head_cols = st.columns([3, 1, 1, 1])
-            head_cols[0].markdown("**Search Query String**")
-            head_cols[1].markdown("**Mark Relevant**")
-            head_cols[2].markdown("**Mark Irrelevant**")
-            head_cols[3].markdown("**Leave for Review**")
-            
-            for index, term in enumerate(triage_terms):
-                row_cols = st.columns([3, 1, 1, 1])
-                row_cols[0].text(term)
-                
-                # Checkboxes acting as a clear radio choice row
-                is_rel = row_cols[1].checkbox("👍 Relevant", key=f"rel_{index}")
-                is_irr = row_cols[2].checkbox("👎 Irrelevant", key=f"irr_{index}")
-                
-                if is_rel and not is_irr:
-                    triage_relevant.append(term)
-                elif is_irr and not is_rel:
-                    triage_irrelevant.append(term)
-                elif is_rel and is_irr:
-                    row_cols[3].warning("Choose only one side")
-                    
-            st.markdown("---")
-            if st.button("🚀 Cache Classified Knowledge", type="secondary", use_container_width=True):
-                if not triage_relevant and not triage_irrelevant:
-                    st.info("No modifications checked. Please select at least one optimization term to commit updates back into the cloud.")
-                else:
-                    with st.spinner("Injecting knowledge assets directly into core Stage 1 tracking architectures..."):
-                        # Extract basic brand portfolio signature as cache validation reference key
-                        raw_cache_key = st.session_state.cache_key
-                        profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
-                        
-                        success = update_brand_profile_cache(
-                            cache_key=profile_sig,
-                            new_relevant_terms=triage_relevant,
-                            new_irrelevant_terms=triage_irrelevant
-                        )
-                        if success:
-                            st.success("Knowledge Vault expansion complete! Terms successfully committed to Google Sheets repositories.")
-                            # Safely eliminate committed items from active review visual arrays locally
-                            res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in triage_relevant and r["Search Term"] not in triage_irrelevant]
-                            res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in triage_relevant and o["Search Term"] not in triage_irrelevant]
-                            st.session_state.audit_results = res_data
-                            st.rerun()
-                        else:
-                            st.error("Failed to sync knowledge profile cache targets. Check service configurations.")
-    else:
-        st.info("No terms found requiring manual review. Perfect classification stream achieved.")
+    if "triage_list" not in st.session_state:
+        st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
+
+    if st.session_state.triage_list:
+        btn_col1, btn_col2, _ = st.columns([1.5, 1.5, 4])
+        move_to_relevant = btn_col1.button("👍 Move Selected to Relevant", use_container_width=True)
+        move_to_irrelevant = btn_col2.button("👎 Move Selected to Irrelevant", use_container_width=True)
         
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # -------------------------------------------------------------------------
-    # 📋 BACKWARD COMPATIBILITY DATA VIEWS
-    # -------------------------------------------------------------------------
-    col_views = st.columns(2)
-    with col_views[0]:
-        with st.expander("🔍 Complete Review Queue Dataset View", expanded=False):
-            df_rev = pd.DataFrame(res_data["review"])
-            st.dataframe(df_rev, use_container_width=True, hide_index=True)
-            if not df_rev.empty:
-                st.download_button("Download Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv", key="btn_dl_rev")
-                
-    with col_views[1]:
-        with st.expander("⚠️ Potentially Overlooked Isolation Queue View", expanded=False):
-            df_ovr = pd.DataFrame(res_data["overlooked"])
-            st.dataframe(df_ovr, use_container_width=True, hide_index=True)
-            if not df_ovr.empty:
-                st.download_button("Download Overlooked Queue CSV", data=df_ovr.to_csv(index=False), file_name="overlooked_queue_dump.csv", key="btn_dl_ovr")
-            else:
-                st.info("System operational health stable. Zero terms bypassed to fallback parameters.")
-                
-    st.markdown("<br>", unsafe_allow_html=True)
+        selected_terms = []
+        
+        with st.container():
+            st.markdown("<br>", unsafe_allow_html=True)
+            hdr_cols = st.columns([0.5, 5.5])
+            hdr_cols[0].markdown("**Select**")
+            hdr_cols[1].markdown("**Search Query String**")
+            st.markdown("---")
             
+            for index, term in enumerate(st.session_state.triage_list):
+                row_cols = st.columns([0.5, 5.5])
+                is_selected = row_cols[0].checkbox(" ", key=f"triage_select_{index}")
+                row_cols[1].text(term)
+                if is_selected:
+                    selected_terms.append(term)
+
+        if move_to_relevant or move_to_irrelevant:
+            if not selected_terms:
+                st.warning("⚠️ Please select at least one search term using the checkboxes on the left before running an action.")
+            else:
+                action_desc = "Relevant (Core Protected)" if move_to_relevant else "Irrelevant (Negatives)"
+                with st.spinner(f"Committing selections to Cloud Knowledge Base as {action_desc}..."):
+                    raw_cache_key = st.session_state.cache_key
+                    profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
+                    
+                    success = update_brand_profile_cache(
+                        cache_key=profile_sig,
+                        new_relevant_terms=selected_terms if move_to_relevant else [],
+                        new_irrelevant_terms=selected_terms if move_to_irrelevant else []
+                    )
+                    
+                    if success:
+                        st.success(f"Successfully cached {len(selected_terms)} terms as {action_desc}!")
+                        st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
+                        res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
+                        res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
+                        st.session_state.audit_results = res_data
+                        st.rerun()
+                    else:
+                        st.error("Pipeline failure updating Google Sheet configurations. Verify backend integrations.")
+    else:
+        st.info("🎉 Verification Complete: Zero unresolved terms remaining inside active review matrices.")
+        
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    # --- ARTIFACT GENERATION & WORKSPACE RETURNING ---
     col_out1, col_out2 = st.columns([2, 1])
     with col_out1:
         st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
@@ -721,11 +660,6 @@ if st.session_state.audit_results:
                     st.success("Google Sheets Asset generated successfully!")
                     st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
                 except Exception as e:
-                    st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nCloud ledger synchronization pipeline interrupted: {str(e)}")
+                    st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
                     
-        if st.button("🔄 Start New Audit", use_container_width=True):
-            st.session_state.stage = 1
-            st.session_state.brand_profile = None
-            st.session_state.locked_rules = None
-            st.session_state.audit_results = None
-            st.rerun()
+        if st.button("
