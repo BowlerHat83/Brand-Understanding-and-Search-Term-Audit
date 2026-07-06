@@ -585,7 +585,7 @@ if st.session_state.audit_results:
     # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
-# --- LEFT SIDE: DROPDOWN TABLE WITH ACTION CONTROLS ---
+    # --- LEFT SIDE: DROPDOWN TABLE WITH ACTION CONTROLS ---
     with split_left:
         with st.expander("🔍 Review & Triage Queue Ledger Table", expanded=True):
             if st.session_state.triage_list:
@@ -684,9 +684,8 @@ if st.session_state.audit_results:
         st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
-       st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
-  st.markdown("<br><hr><br>", unsafe_allow_html=True)
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
