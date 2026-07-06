@@ -585,7 +585,7 @@ if st.session_state.audit_results:
     # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
-    # --- LEFT SIDE: DROPDOWN TABLE WITH ACTION CONTROLS ---
+# --- LEFT SIDE: DROPDOWN TABLE WITH ACTION CONTROLS ---
     with split_left:
         with st.expander("🔍 Review & Triage Queue Ledger Table", expanded=True):
             if st.session_state.triage_list:
@@ -593,38 +593,43 @@ if st.session_state.audit_results:
                 # Action Control Buttons Array Header
                 act_col1, act_col2, act_col3 = st.columns(3)
                 
-                # Button 1: Select All Toggle
+                # Toggle Select All State Variable on click
                 if act_col1.button("✅ Select All", use_container_width=True):
-                    st.session_state.select_all_triage = True
+                    st.session_state.select_all_triage = not st.session_state.select_all_triage
                     st.rerun()
                     
-                # Action flags
                 trigger_move_relevant = act_col2.button("👍 Move to Relevant", use_container_width=True)
                 trigger_move_irrelevant = act_col3.button("👎 Move to Irrelevant", use_container_width=True)
                 
                 selected_terms = []
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Table Grid Header
+                # Table Grid Header Fix (Stays pinned at the top)
                 hdr_cols = st.columns([0.8, 5.2])
                 hdr_cols[0].markdown("**Select**")
                 hdr_cols[1].markdown("**Search Query String**")
                 st.markdown("---")
                 
-                # Table Rows Generator Loop
+                # --- EMBEDDED SCROLLABLE VIEWPORT CONTAINER ---
+                # Fixed at 350px height to match your output text box cleanly
+                st.markdown('<div style="max-height: 350px; overflow-y: auto; padding-right: 10px;">', unsafe_allow_html=True)
+                
                 for index, term in enumerate(st.session_state.triage_list):
                     row_cols = st.columns([0.8, 5.2])
                     
-                    # Renders state-aware custom matrix selection checkboxes
+                    # Generate checkboxes with stable default states
                     is_selected = row_cols[0].checkbox(
                         " ", 
                         value=st.session_state.select_all_triage, 
-                        key=f"triage_chk_{index}"
+                        key=f"triage_chk_row_{term}_{index}"
                     )
                     row_cols[1].text(term)
                     
                     if is_selected:
                         selected_terms.append(term)
+                        
+                st.markdown('</div>', unsafe_allow_html=True) # Close Scroll Container
+                # ----------------------------------------------
                         
                 # Route Actions Processing Block
                 if trigger_move_relevant or trigger_move_irrelevant:
@@ -632,7 +637,7 @@ if st.session_state.audit_results:
                         st.warning("⚠️ Please select items using the checkboxes or use 'Select All' first.")
                     else:
                         is_rel = trigger_move_relevant
-                        # Route locally within session variables
+                        
                         if is_rel:
                             for t in selected_terms:
                                 if not any(r["Search Term"] == t for r in res_data["relevant"]):
@@ -641,24 +646,23 @@ if st.session_state.audit_results:
                             for t in selected_terms:
                                 if not any(r["Search Term"] == t for r in res_data["irrelevant"]):
                                     res_data["irrelevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
-                                    # Dynamically reconstruct target match string
                                     notation = apply_ads_notation(t, is_exact=False)
                                     if notation not in res_data["copy_paste_list"]:
                                         res_data["copy_paste_list"].append(notation)
                         
-                        # Strip routed records from operational validation state
+                        # Strip routed records from view
                         st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
                         res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
                         res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
                         
-                        # Recalculate basic analytical layout counters
+                        # Recalculate metrics counter values
                         res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
                         res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
                         res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
                         res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
                         
                         st.session_state.audit_results = res_data
-                        st.session_state.select_all_triage = False
+                        st.session_state.select_all_triage = False  # Reset selection state flag safely
                         st.success(f"Successfully routed {len(selected_terms)} terms internally!")
                         st.rerun()
             else:
@@ -703,7 +707,6 @@ if st.session_state.audit_results:
                 raw_cache_key = st.session_state.cache_key
                 profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
                 
-                # Bulk pull resolved changes made during this operational view run
                 rel_payload = [r["Search Term"] for r in res_data["relevant"]]
                 irr_payload = [i["Search Term"] for i in res_data["irrelevant"]]
                 
