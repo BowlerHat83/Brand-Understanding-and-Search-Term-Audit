@@ -556,6 +556,7 @@ if st.session_state.audit_results:
     if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
         st.warning("⚠️ **Notice:** Some search terms bypassed direct categorization and were routed to the overlooked queue to prevent app suspension.")
     
+    # 1. Full-Width Metrics Bar
     met_cols = st.columns(6)
     metrics_mapping = [
         ("Total Inputted Terms", "Total Inputted Terms"),
@@ -573,98 +574,111 @@ if st.session_state.audit_results:
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # --- CENTRAL BULK TRIAGE INTERFACE ---
-    with st.expander("🧠 Central Human Triage & Knowledge Expansion Engine", expanded=True):
-        st.caption("Select items using the checkboxes on the left, choose their destination, then click Cache Selected Knowledge.")
-        
-        from backend_stage3 import update_brand_profile_cache
+    # Initialize the triage engine state arrays if missing
+    from backend_stage3 import update_brand_profile_cache
 
-        if "triage_list" not in st.session_state:
-            st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
+    if "triage_list" not in st.session_state:
+        st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
+    if "select_all_triage" not in st.session_state:
+        st.session_state.select_all_triage = False
 
-        if st.session_state.triage_list:
-            # Action Controls Matrix Setup
-            ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 2, 2])
-            
-            with ctrl_col1:
-                destination = st.radio(
-                    "Select Routing Target Bucket:",
-                    options=["👍 Move Selected to Relevant", "👎 Move Selected to Irrelevant"],
-                    horizontal=True
-                )
-                
-            with ctrl_col2:
-                st.markdown("<br>", unsafe_allow_html=True) # Align button visually
-                commit_cache = st.button("💾 Cache Selected Knowledge", type="primary", use_container_width=True)
-            
-            selected_terms = []
-            
-            # Formatted Table Construction
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Table Header
-            hdr_cols = st.columns([0.8, 5.2])
-            hdr_cols[0].markdown("**Select**")
-            hdr_cols[1].markdown("**Search Query String**")
-            st.markdown("---")
-            
-            # Table Rows Loop
-            for index, term in enumerate(st.session_state.triage_list):
-                row_cols = st.columns([0.8, 5.2])
-                
-                # Single clear checkbox row control on the left
-                is_selected = row_cols[0].checkbox(" ", key=f"triage_select_{index}")
-                row_cols[1].text(term)
-                
-                if is_selected:
-                    selected_terms.append(term)
-
-            # Execution Logic on Button Click
-            if commit_cache:
-                if not selected_terms:
-                    st.warning("⚠️ Please select at least one search term using the checkboxes on the left before caching.")
-                else:
-                    is_relevant = "Relevant" in destination
-                    action_desc = "Relevant (Core Protected)" if is_relevant else "Irrelevant (Negatives)"
-                    
-                    with st.spinner(f"Committing selections to Cloud Knowledge Base as {action_desc}..."):
-                        raw_cache_key = st.session_state.cache_key
-                        profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
-                        
-                        success = update_brand_profile_cache(
-                            cache_key=profile_sig,
-                            new_relevant_terms=selected_terms if is_relevant else [],
-                            new_irrelevant_terms=selected_terms if not is_relevant else []
-                        )
-                        
-                        if success:
-                            st.success(f"Successfully cached {len(selected_terms)} terms as {action_desc}!")
-                            
-                            # Clean up lists locally out of visual views instantly
-                            st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
-                            res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
-                            res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
-                            st.session_state.audit_results = res_data
-                            
-                            st.rerun()
-                        else:
-                            st.error("Pipeline failure updating Google Sheet configurations. Verify backend setup integrations.")
-        else:
-            st.info("🎉 Verification Complete: Zero unresolved terms remaining inside active review matrices.")
-        
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    # 2. Split Screen Layout: 50/50 Division
+    split_left, split_right = st.columns([1, 1])
     
-    # --- ARTIFACT GENERATION & WORKSPACE RETURNING ---
-    col_out1, col_out2 = st.columns([2, 1])
-    with col_out1:
+    # --- LEFT SIDE: DROPDOWN TABLE WITH ACTION CONTROLS ---
+    with split_left:
+        with st.expander("🔍 Review & Triage Queue Ledger Table", expanded=True):
+            if st.session_state.triage_list:
+                
+                # Action Control Buttons Array Header
+                act_col1, act_col2, act_col3 = st.columns(3)
+                
+                # Button 1: Select All Toggle
+                if act_col1.button("✅ Select All", use_container_width=True):
+                    st.session_state.select_all_triage = True
+                    st.rerun()
+                    
+                # Action flags
+                trigger_move_relevant = act_col2.button("👍 Move to Relevant", use_container_width=True)
+                trigger_move_irrelevant = act_col3.button("👎 Move to Irrelevant", use_container_width=True)
+                
+                selected_terms = []
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # Table Grid Header
+                hdr_cols = st.columns([0.8, 5.2])
+                hdr_cols[0].markdown("**Select**")
+                hdr_cols[1].markdown("**Search Query String**")
+                st.markdown("---")
+                
+                # Table Rows Generator Loop
+                for index, term in enumerate(st.session_state.triage_list):
+                    row_cols = st.columns([0.8, 5.2])
+                    
+                    # Renders state-aware custom matrix selection checkboxes
+                    is_selected = row_cols[0].checkbox(
+                        " ", 
+                        value=st.session_state.select_all_triage, 
+                        key=f"triage_chk_{index}"
+                    )
+                    row_cols[1].text(term)
+                    
+                    if is_selected:
+                        selected_terms.append(term)
+                        
+                # Route Actions Processing Block
+                if trigger_move_relevant or trigger_move_irrelevant:
+                    if not selected_terms:
+                        st.warning("⚠️ Please select items using the checkboxes or use 'Select All' first.")
+                    else:
+                        is_rel = trigger_move_relevant
+                        # Route locally within session variables
+                        if is_rel:
+                            for t in selected_terms:
+                                if not any(r["Search Term"] == t for r in res_data["relevant"]):
+                                    res_data["relevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
+                        else:
+                            for t in selected_terms:
+                                if not any(r["Search Term"] == t for r in res_data["irrelevant"]):
+                                    res_data["irrelevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
+                                    # Dynamically reconstruct target match string
+                                    notation = apply_ads_notation(t, is_exact=False)
+                                    if notation not in res_data["copy_paste_list"]:
+                                        res_data["copy_paste_list"].append(notation)
+                        
+                        # Strip routed records from operational validation state
+                        st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
+                        res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
+                        res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
+                        
+                        # Recalculate basic analytical layout counters
+                        res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
+                        res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
+                        res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
+                        res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
+                        
+                        st.session_state.audit_results = res_data
+                        st.session_state.select_all_triage = False
+                        st.success(f"Successfully routed {len(selected_terms)} terms internally!")
+                        st.rerun()
+            else:
+                st.info("🎉 All items fully triaged inside this active configuration run.")
+
+    # --- RIGHT SIDE: EXACT STYLE COPY-PASTE FORMATTED OUTPUT ---
+    with split_right:
         st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
         st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350)
-        
-    with col_out2:
-        st.subheader("⚙️ Workspace Controls")
-        st.caption("Need to Sanity Check the Outputs? Download the below Workbook Ledger.")
+
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+
+    # 3. Full-Width Workspace Footer Controls Layout
+    st.subheader("⚙️ Global Workspace Controls")
+    foot_col1, foot_col2, foot_col3 = st.columns(3)
+    
+    # Control Button A: Download Workbook Ledger
+    with foot_col1:
         if st.button("🚀 Download Workbook Ledger", use_container_width=True):
             payload = {
                 "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
@@ -674,7 +688,6 @@ if st.session_state.audit_results:
                 "Potentially Overlooked": res_data["overlooked"],
                 "Root Negatives": res_data["roots"]
             }
-            
             with st.spinner("Provisioning real-time Google Sheet asset structure..."):
                 try:
                     direct_url = push_to_google_sheets(st.session_state.cache_key, payload)
@@ -682,10 +695,35 @@ if st.session_state.audit_results:
                     st.markdown(f"[🔗 Click to Open Your Google Sheet Workspace]({direct_url})")
                 except Exception as e:
                     st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
-                    
+
+    # Control Button B: Cache Audit Into Brand Knowledge Database Row Range
+    with foot_col2:
+        if st.button("💾 Cache Audit into Brand Knowledge", type="primary", use_container_width=True):
+            with st.spinner("Committing verified session definitions directly to cloud master ledger cache..."):
+                raw_cache_key = st.session_state.cache_key
+                profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
+                
+                # Bulk pull resolved changes made during this operational view run
+                rel_payload = [r["Search Term"] for r in res_data["relevant"]]
+                irr_payload = [i["Search Term"] for i in res_data["irrelevant"]]
+                
+                success = update_brand_profile_cache(
+                    cache_key=profile_sig,
+                    new_relevant_terms=rel_payload,
+                    new_irrelevant_terms=irr_payload
+                )
+                if success:
+                    st.success("Cloud database successfully trained with current session intelligence metrics parameters!")
+                else:
+                    st.error("Pipeline connectivity error tracking database parameters back into cloud rows layer.")
+
+    # Control Button C: Start Fresh Engine Matrix Audit Run
+    with foot_col3:
         if st.button("🔄 Start New Audit", use_container_width=True):
             if "triage_list" in st.session_state:
                 del st.session_state.triage_list
+            if "select_all_triage" in st.session_state:
+                del st.session_state.select_all_triage
             st.session_state.stage = 1
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
