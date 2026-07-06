@@ -684,14 +684,51 @@ if st.session_state.audit_results:
         st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
+   st.markdown("<br><hr><br>", unsafe_allow_html=True)
+
     # =========================================================================
-    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER
+    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
     # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
+    
+    # Custom CSS Injection to apply padding to containers and tint action controls color metrics
+    st.markdown("""
+        <style>
+            /* Smooth interior element padding injection to make it feel less cramped */
+            div[data-testid="stExpander"] div[role="region"] {
+                padding: 24px 20px !important;
+            }
+            div[data-testid="stForm"] {
+                padding: 20px !important;
+            }
+            .stTextArea textarea {
+                padding: 14px !important;
+            }
+            
+            /* Global workspace controls primary alignment buttons overrides */
+            div.stButton > button:first-child {
+                padding: 12px 20px !important;
+                font-weight: 600 !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     foot_col1, foot_col2, foot_col3 = st.columns(3)
     
-    # Control Button A: Download Workbook Ledger
+    # Control Button A: Download Workbook Ledger (Green Variant Tint)
     with foot_col1:
+        st.markdown("""
+            <style>
+                div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
+                    background-color: #2E7D32 !important;
+                    color: white !important;
+                    border: 1px solid #1B5E20 !important;
+                }
+                div[data-testid="stHorizontalBlock"] > div:nth-child(1) button:hover {
+                    background-color: #1B5E20 !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
         if st.button("🚀 Download Workbook Ledger", use_container_width=True):
             payload = {
                 "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
@@ -709,9 +746,21 @@ if st.session_state.audit_results:
                 except Exception as e:
                     st.error(f"🔧 **Error Code: E005** - Cloud ledger pipeline interrupted: {str(e)}")
 
-    # Control Button B: Cache Audit Into Brand Knowledge Database Row Range
+    # Control Button B: Cache Audit Into Brand Knowledge Database Row Range (Red Variant Tint)
     with foot_col2:
-        if st.button("💾 Cache Audit into Brand Knowledge", type="primary", use_container_width=True):
+        st.markdown("""
+            <style>
+                div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
+                    background-color: #C62828 !important;
+                    color: white !important;
+                    border: 1px solid #B71C1C !important;
+                }
+                div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:hover {
+                    background-color: #B71C1C !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        if st.button("💾 Cache Audit into Brand Knowledge", use_container_width=True):
             with st.spinner("Committing verified session definitions directly to cloud master ledger cache..."):
                 raw_cache_key = st.session_state.cache_key
                 profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
@@ -729,8 +778,20 @@ if st.session_state.audit_results:
                 else:
                     st.error("Pipeline connectivity error tracking database parameters back into cloud rows layer.")
 
-    # Control Button C: Start Fresh Engine Matrix Audit Run
+    # Control Button C: Start Fresh Engine Matrix Audit Run (Blue Variant Tint)
     with foot_col3:
+        st.markdown("""
+            <style>
+                div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
+                    background-color: #1565C0 !important;
+                    color: white !important;
+                    border: 1px solid #0D47A1 !important;
+                }
+                div[data-testid="stHorizontalBlock"] > div:nth-child(3) button:hover {
+                    background-color: #0D47A1 !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
         if st.button("🔄 Start New Audit", use_container_width=True):
             # Clean up all tracking states safely
             for index, term in enumerate(st.session_state.get("triage_list", [])):
