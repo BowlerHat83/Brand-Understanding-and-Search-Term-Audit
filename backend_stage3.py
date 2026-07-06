@@ -71,5 +71,28 @@ def push_to_google_sheets(cache_key: str, payload: dict) -> str:
                 
             # Modern, version-proof update layout
             worksheet.update(values=data_matrix, range_name="A1")
-            
+
     return f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
+
+# --- ADD THIS TO THE BOTTOM OF YOUR FILE TO FIX THE IMPORT ERROR ---
+
+def update_brand_profile_cache(cache_key: str, profile_data: dict) -> bool:
+    """
+    Saves or updates the processed brand profile data in Streamlit's 
+    session state cache to prevent redundant Google Sheets reads.
+    """
+    try:
+        if 'brand_profile_cache' not in st.session_state:
+            st.session_state['brand_profile_cache'] = {}
+            
+        st.session_state['brand_profile_cache'][cache_key] = {
+            'data': profile_data,
+            'updated_at': datetime.now(timezone.utc).isoformat()
+        }
+        return True
+    except Exception as e:
+        st.warning(f"Cache Sync Warning: {str(e)}")
+        return False
+
+
+
