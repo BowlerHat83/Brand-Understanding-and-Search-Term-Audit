@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 
 def push_to_google_sheets(cache_key: str, payload: dict):
     """
-    Bypasses Google APIs completely to eliminate 403 Quota errors.
+    Bypasses Google API quota errors completely.
     Flattens the multi-tab dictionary payload into a single, unified 
-    CSV byte stream for a reliable browser download.
+    CSV byte stream for direct browser downloads.
     """
     try:
         all_data_frames = []
@@ -17,11 +17,10 @@ def push_to_google_sheets(cache_key: str, payload: dict):
             if not rows:
                 continue
                 
-            # Convert list of dicts to a DataFrame if data exists
+            # Handle list of dictionaries (standard rows)
             if isinstance(rows, list) and len(rows) > 0 and isinstance(rows[0], dict):
                 df = pd.DataFrame(rows)
-                
-                # Insert a clear tag column at the front so you can filter by tab in Google Sheets
+                # Insert source tag column at the front for easy filtering in Google Sheets
                 df.insert(0, 'Source_Tab', tab_name)
                 all_data_frames.append(df)
         
@@ -29,7 +28,7 @@ def push_to_google_sheets(cache_key: str, payload: dict):
             st.error("No valid data found to compile into a CSV ledger.")
             return None
             
-        # Combine all sections into one clean, continuous master data table
+        # Combine all sections into one clean master table
         master_df = pd.concat(all_data_frames, ignore_index=True)
         
         # Write to a string buffer using standard CSV configuration
@@ -44,19 +43,22 @@ def push_to_google_sheets(cache_key: str, payload: dict):
         st.error(f"Local CSV compilation failed: {str(e)}")
         return None
 
-def update_brand_profile_cache(cache_key: str, profile_data: dict) -> bool:
+def update_brand_profile_cache(cache_key: str, new_relevant_terms: list = None, new_irrelevant_terms: list = None) -> bool:
     """
-    Keeps the backend cache helper available so app.py imports do not break.
+    Saves or updates verified session definitions directly to Streamlit's 
+    session state cache, matching the exact keyword signatures from app.py.
     """
     try:
         if 'brand_profile_cache' not in st.session_state:
             st.session_state['brand_profile_cache'] = {}
             
+        # Structure the data layout so app.py can commit or read it safely
         st.session_state['brand_profile_cache'][cache_key] = {
-            'data': profile_data,
+            'relevant_trained': new_relevant_terms if new_relevant_terms is not None else [],
+            'irrelevant_trained': new_irrelevant_terms if new_irrelevant_terms is not None else [],
             'updated_at': datetime.now(timezone.utc).isoformat()
         }
         return True
     except Exception as e:
-        st.warning(f"Cache Sync Warning: {str(e)}")
+        st.warning(f"Cache Training Warning: {str(e)}")
         return False
