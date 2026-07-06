@@ -574,66 +574,87 @@ if st.session_state.audit_results:
     st.markdown("<br>", unsafe_allow_html=True)
     
     # --- CENTRAL BULK TRIAGE INTERFACE ---
-    st.markdown("### 🧠 Central Human Triage & Knowledge Expansion Engine")
-    st.caption("Select items using the checkboxes on the left, then use the master actions at the top to process them in bulk.")
-    
-    # Dynamically pull the live profile modifier engine
-    from backend_stage3 import update_brand_profile_cache
-
-    if "triage_list" not in st.session_state:
-        st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
-
-    if st.session_state.triage_list:
-        btn_col1, btn_col2, _ = st.columns([1.5, 1.5, 4])
-        move_to_relevant = btn_col1.button("👍 Move Selected to Relevant", use_container_width=True)
-        move_to_irrelevant = btn_col2.button("👎 Move Selected to Irrelevant", use_container_width=True)
+    with st.expander("🧠 Central Human Triage & Knowledge Expansion Engine", expanded=True):
+        st.caption("Select items using the checkboxes on the left, choose their destination, then click Cache Selected Knowledge.")
         
-        selected_terms = []
-        
-        with st.container():
+        from backend_stage3 import update_brand_profile_cache
+
+        if "triage_list" not in st.session_state:
+            st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
+
+        if st.session_state.triage_list:
+            # Action Controls Matrix Setup
+            ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 2, 2])
+            
+            with ctrl_col1:
+                destination = st.radio(
+                    "Select Routing Target Bucket:",
+                    options=["👍 Move Selected to Relevant", "👎 Move Selected to Irrelevant"],
+                    horizontal=True
+                )
+                
+            with ctrl_col2:
+                st.markdown("<br>", unsafe_allow_html=True) # Align button visually
+                commit_cache = st.button("💾 Cache Selected Knowledge", type="primary", use_container_width=True)
+            
+            selected_terms = []
+            
+            # Formatted Table Construction
             st.markdown("<br>", unsafe_allow_html=True)
-            hdr_cols = st.columns([0.5, 5.5])
+            
+            # Table Header
+            hdr_cols = st.columns([0.8, 5.2])
             hdr_cols[0].markdown("**Select**")
             hdr_cols[1].markdown("**Search Query String**")
             st.markdown("---")
             
+            # Table Rows Loop
             for index, term in enumerate(st.session_state.triage_list):
-                row_cols = st.columns([0.5, 5.5])
+                row_cols = st.columns([0.8, 5.2])
+                
+                # Single clear checkbox row control on the left
                 is_selected = row_cols[0].checkbox(" ", key=f"triage_select_{index}")
                 row_cols[1].text(term)
+                
                 if is_selected:
                     selected_terms.append(term)
 
-        if move_to_relevant or move_to_irrelevant:
-            if not selected_terms:
-                st.warning("⚠️ Please select at least one search term using the checkboxes on the left before running an action.")
-            else:
-                action_desc = "Relevant (Core Protected)" if move_to_relevant else "Irrelevant (Negatives)"
-                with st.spinner(f"Committing selections to Cloud Knowledge Base as {action_desc}..."):
-                    raw_cache_key = st.session_state.cache_key
-                    profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
+            # Execution Logic on Button Click
+            if commit_cache:
+                if not selected_terms:
+                    st.warning("⚠️ Please select at least one search term using the checkboxes on the left before caching.")
+                else:
+                    is_relevant = "Relevant" in destination
+                    action_desc = "Relevant (Core Protected)" if is_relevant else "Irrelevant (Negatives)"
                     
-                    success = update_brand_profile_cache(
-                        cache_key=profile_sig,
-                        new_relevant_terms=selected_terms if move_to_relevant else [],
-                        new_irrelevant_terms=selected_terms if move_to_irrelevant else []
-                    )
-                    
-                    if success:
-                        st.success(f"Successfully cached {len(selected_terms)} terms as {action_desc}!")
-                        st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
-                        res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
-                        res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
-                        st.session_state.audit_results = res_data
-                        st.rerun()
-                    else:
-                        st.error("Pipeline failure updating Google Sheet configurations. Verify backend integrations.")
-    else:
-        st.info("🎉 Verification Complete: Zero unresolved terms remaining inside active review matrices.")
+                    with st.spinner(f"Committing selections to Cloud Knowledge Base as {action_desc}..."):
+                        raw_cache_key = st.session_state.cache_key
+                        profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
+                        
+                        success = update_brand_profile_cache(
+                            cache_key=profile_sig,
+                            new_relevant_terms=selected_terms if is_relevant else [],
+                            new_irrelevant_terms=selected_terms if not is_relevant else []
+                        )
+                        
+                        if success:
+                            st.success(f"Successfully cached {len(selected_terms)} terms as {action_desc}!")
+                            
+                            # Clean up lists locally out of visual views instantly
+                            st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
+                            res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
+                            res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
+                            st.session_state.audit_results = res_data
+                            
+                            st.rerun()
+                        else:
+                            st.error("Pipeline failure updating Google Sheet configurations. Verify backend setup integrations.")
+        else:
+            st.info("🎉 Verification Complete: Zero unresolved terms remaining inside active review matrices.")
         
     st.markdown("<br><br>", unsafe_allow_html=True)
     
-   # --- ARTIFACT GENERATION & WORKSPACE RETURNING ---
+    # --- ARTIFACT GENERATION & WORKSPACE RETURNING ---
     col_out1, col_out2 = st.columns([2, 1])
     with col_out1:
         st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
