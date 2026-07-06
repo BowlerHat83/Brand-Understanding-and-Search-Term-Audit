@@ -689,6 +689,11 @@ if st.session_state.audit_results:
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
     # =========================================================================
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+
+    # =========================================================================
+    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
+    # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
     
     # Custom CSS Injection to apply padding to containers and tint action controls color metrics
