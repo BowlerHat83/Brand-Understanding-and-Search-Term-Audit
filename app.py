@@ -589,7 +589,7 @@ if st.session_state.get("audit_results") is not None:
     
     # --- LEFT SIDE: CLEAN TRIAGE CONTAINER (NO EXPANDER DROPDOWN) ---
     with split_left:
-        st.subheader("🔍 Review & Triage Queue Ledger Table")
+        st.subheader("🔍 Review Queue Triage")
         st.caption("Select items using the checkboxes below and route them to their target database destination.")
         
         if st.session_state.triage_list:
