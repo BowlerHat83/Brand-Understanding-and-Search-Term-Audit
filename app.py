@@ -684,7 +684,7 @@ if st.session_state.audit_results:
         st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
-   st.markdown("<br><hr><br>", unsafe_allow_html=True)
+       st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
