@@ -590,12 +590,27 @@ if st.session_state.audit_results:
         with st.expander("🔍 Review & Triage Queue Ledger Table", expanded=True):
             if st.session_state.triage_list:
                 
+                # --- DYNAMIC SMART TOGGLE TEXT CALCULATOR ---
+                # Scan current state keys to determine if the majority are True or False
+                checked_count = 0
+                for index, term in enumerate(st.session_state.triage_list):
+                    if st.session_state.get(f"triage_chk_row_{term}_{index}", False):
+                        checked_count += 1
+                
+                total_items = len(st.session_state.triage_list)
+                majority_selected = checked_count > (total_items / 2)
+                
+                # Dynamic text update doing the "bigger job"
+                toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
+                
                 # Action Control Buttons Array Header
                 act_col1, act_col2, act_col3 = st.columns(3)
                 
-                # Toggle Select All State Variable on click
-                if act_col1.button("✅ Select All", use_container_width=True):
-                    st.session_state.select_all_triage = not st.session_state.select_all_triage
+                if act_col1.button(toggle_label, use_container_width=True):
+                    # Invert target values based on majority scan
+                    target_state = not majority_selected
+                    for index, term in enumerate(st.session_state.triage_list):
+                        st.session_state[f"triage_chk_row_{term}_{index}"] = target_state
                     st.rerun()
                     
                 trigger_move_relevant = act_col2.button("👍 Move to Relevant", use_container_width=True)
@@ -610,17 +625,18 @@ if st.session_state.audit_results:
                 hdr_cols[1].markdown("**Search Query String**")
                 st.markdown("---")
                 
-                # --- EMBEDDED SCROLLABLE VIEWPORT CONTAINER ---
-                # Fixed at 350px height to match your output text box cleanly
-                st.markdown('<div style="max-height: 350px; overflow-y: auto; padding-right: 10px;">', unsafe_allow_html=True)
+                # --- FIXED HEIGHT SCROLLABLE CONTAINER (HEIGHT SYNCED TO 350PX DATA BOX) ---
+                st.markdown(
+                    '<div style="height: 350px; max-height: 350px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; border-radius: 4px; background-color: #fafafa;">', 
+                    unsafe_allow_html=True
+                )
                 
                 for index, term in enumerate(st.session_state.triage_list):
                     row_cols = st.columns([0.8, 5.2])
                     
-                    # Generate checkboxes with stable default states
+                    # Generate checkboxes bound to stable state variables
                     is_selected = row_cols[0].checkbox(
                         " ", 
-                        value=st.session_state.select_all_triage, 
                         key=f"triage_chk_row_{term}_{index}"
                     )
                     row_cols[1].text(term)
@@ -629,12 +645,12 @@ if st.session_state.audit_results:
                         selected_terms.append(term)
                         
                 st.markdown('</div>', unsafe_allow_html=True) # Close Scroll Container
-                # ----------------------------------------------
+                # -----------------------------------------------------------------------------
                         
                 # Route Actions Processing Block
                 if trigger_move_relevant or trigger_move_irrelevant:
                     if not selected_terms:
-                        st.warning("⚠️ Please select items using the checkboxes or use 'Select All' first.")
+                        st.warning("⚠️ Please select items using the checkboxes or use the toggle button first.")
                     else:
                         is_rel = trigger_move_relevant
                         
@@ -650,19 +666,24 @@ if st.session_state.audit_results:
                                     if notation not in res_data["copy_paste_list"]:
                                         res_data["copy_paste_list"].append(notation)
                         
-                        # Strip routed records from view
+                        # Strip routed records from operational validation state lists and clear their state keys
+                        for index, term in enumerate(st.session_state.triage_list):
+                            if term in selected_terms:
+                                key_to_clear = f"triage_chk_row_{term}_{index}"
+                                if key_to_clear in st.session_state:
+                                    del st.session_state[key_to_clear]
+                                    
                         st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
                         res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
                         res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
                         
-                        # Recalculate metrics counter values
+                        # Recalculate basic metrics parameters
                         res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
                         res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
                         res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
                         res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
                         
                         st.session_state.audit_results = res_data
-                        st.session_state.select_all_triage = False  # Reset selection state flag safely
                         st.success(f"Successfully routed {len(selected_terms)} terms internally!")
                         st.rerun()
             else:
@@ -677,7 +698,9 @@ if st.session_state.audit_results:
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
-    # 3. Full-Width Workspace Footer Controls Layout
+    # =========================================================================
+    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER
+    # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
     foot_col1, foot_col2, foot_col3 = st.columns(3)
     
@@ -723,10 +746,14 @@ if st.session_state.audit_results:
     # Control Button C: Start Fresh Engine Matrix Audit Run
     with foot_col3:
         if st.button("🔄 Start New Audit", use_container_width=True):
+            # Clean up all tracking states safely
+            for index, term in enumerate(st.session_state.get("triage_list", [])):
+                key_to_clear = f"triage_chk_row_{term}_{index}"
+                if key_to_clear in st.session_state:
+                    del st.session_state[key_to_clear]
+                    
             if "triage_list" in st.session_state:
                 del st.session_state.triage_list
-            if "select_all_triage" in st.session_state:
-                del st.session_state.select_all_triage
             st.session_state.stage = 1
             st.session_state.brand_profile = None
             st.session_state.locked_rules = None
