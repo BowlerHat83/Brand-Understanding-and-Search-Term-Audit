@@ -591,7 +591,6 @@ if st.session_state.audit_results:
             if st.session_state.triage_list:
                 
                 # --- DYNAMIC SMART TOGGLE TEXT CALCULATOR ---
-                # Scan current state keys to determine if the majority are True or False
                 checked_count = 0
                 for index, term in enumerate(st.session_state.triage_list):
                     if st.session_state.get(f"triage_chk_row_{term}_{index}", False):
@@ -599,15 +598,12 @@ if st.session_state.audit_results:
                 
                 total_items = len(st.session_state.triage_list)
                 majority_selected = checked_count > (total_items / 2)
-                
-                # Dynamic text update doing the "bigger job"
                 toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
                 
                 # Action Control Buttons Array Header
                 act_col1, act_col2, act_col3 = st.columns(3)
                 
                 if act_col1.button(toggle_label, use_container_width=True):
-                    # Invert target values based on majority scan
                     target_state = not majority_selected
                     for index, term in enumerate(st.session_state.triage_list):
                         st.session_state[f"triage_chk_row_{term}_{index}"] = target_state
@@ -619,32 +615,25 @@ if st.session_state.audit_results:
                 selected_terms = []
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Table Grid Header Fix (Stays pinned at the top)
-                hdr_cols = st.columns([0.8, 5.2])
+                # Table Grid Header (Pinned cleanly above the scroll area)
+                hdr_cols = st.columns([1, 5])
                 hdr_cols[0].markdown("**Select**")
                 hdr_cols[1].markdown("**Search Query String**")
                 st.markdown("---")
                 
-                # --- FIXED HEIGHT SCROLLABLE CONTAINER (HEIGHT SYNCED TO 350PX DATA BOX) ---
-                st.markdown(
-                    '<div style="height: 350px; max-height: 350px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; border-radius: 4px; background-color: #fafafa;">', 
-                    unsafe_allow_html=True
-                )
-                
-                for index, term in enumerate(st.session_state.triage_list):
-                    row_cols = st.columns([0.8, 5.2])
-                    
-                    # Generate checkboxes bound to stable state variables
-                    is_selected = row_cols[0].checkbox(
-                        " ", 
-                        key=f"triage_chk_row_{term}_{index}"
-                    )
-                    row_cols[1].text(term)
-                    
-                    if is_selected:
-                        selected_terms.append(term)
+                # --- FIXED HEIGHT NATIVE SCROLL CONTAINER (MATCHES TEXT AREA HEIGHT) ---
+                with st.container(height=350):
+                    for index, term in enumerate(st.session_state.triage_list):
+                        row_cols = st.columns([1, 5])
                         
-                st.markdown('</div>', unsafe_allow_html=True) # Close Scroll Container
+                        is_selected = row_cols[0].checkbox(
+                            " ", 
+                            key=f"triage_chk_row_{term}_{index}"
+                        )
+                        row_cols[1].text(term)
+                        
+                        if is_selected:
+                            selected_terms.append(term)
                 # -----------------------------------------------------------------------------
                         
                 # Route Actions Processing Block
@@ -666,7 +655,7 @@ if st.session_state.audit_results:
                                     if notation not in res_data["copy_paste_list"]:
                                         res_data["copy_paste_list"].append(notation)
                         
-                        # Strip routed records from operational validation state lists and clear their state keys
+                        # Clear old state keys from session state
                         for index, term in enumerate(st.session_state.triage_list):
                             if term in selected_terms:
                                 key_to_clear = f"triage_chk_row_{term}_{index}"
@@ -677,7 +666,7 @@ if st.session_state.audit_results:
                         res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
                         res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
                         
-                        # Recalculate basic metrics parameters
+                        # Recalculate metrics
                         res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
                         res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
                         res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
@@ -694,10 +683,7 @@ if st.session_state.audit_results:
         st.subheader("🎯 Optimization Output: Google Ads Copy-Paste Match List")
         st.caption("Copy this target data string completely straight onto campaign parameters negative target keywords list inputs.")
         text_block = "\n".join(res_data["copy_paste_list"])
-        st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350)
-
-    st.markdown("<br><hr><br>", unsafe_allow_html=True)
-
+        st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER
     # =========================================================================
