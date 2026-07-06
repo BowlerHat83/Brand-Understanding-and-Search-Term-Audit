@@ -553,8 +553,24 @@ if st.session_state.get("audit_results") is not None:
     st.markdown("---")
     st.subheader("🛡️ Audit Summary Performance Data")
     
-    if res_data["metrics"]["Potentially Overlooked Terms"] > 0:
-        st.warning("⚠️ **Notice:** Some search terms bypassed direct categorization and were routed to the overlooked queue to prevent app suspension.")
+    # --- DYNAMIC HIGH-INTENSITY RED ALERT ENGINE ---
+    overlooked_count = res_data["metrics"]["Potentially Overlooked Terms"]
+    
+    if overlooked_count > 0:
+        if overlooked_count <= 10:
+            # Low volume warning handler
+            st.error(
+                f"🚨 **Critical Attention Required:** {overlooked_count} search term(s) bypassed direct automation rules "
+                f"and were routed to the overlooked queue to prevent app suspension. Please expand the pipeline ledger "
+                f"below and manually review these missed terms."
+            )
+        else:
+            # High volume data skew warning handler
+            st.error(
+                f"🔥 **Data Skew Warning:** {overlooked_count} search terms bypassed direct categorization. This volume "
+                f"indicates your source data is likely skewed and current outputs should be taken with a pinch of salt. "
+                f"For accurate system sorting results, please optimize your rulesets and run the search term audit again."
+            )
     
     # 1. Full-Width Metrics Bar
     met_cols = st.columns(6)
@@ -574,7 +590,7 @@ if st.session_state.get("audit_results") is not None:
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Initialize the triage engine state arrays if missing
+    # Initialize triage engine states if missing
     from backend_stage3 import update_brand_profile_cache
 
     if "triage_list" not in st.session_state:
@@ -582,8 +598,6 @@ if st.session_state.get("audit_results") is not None:
     if "select_all_triage" not in st.session_state:
         st.session_state.select_all_triage = False
 
-    # 2. Split Screen Layout: 50/50 Division
-    # 2. Split Screen Layout: 50/50 Division
     # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
