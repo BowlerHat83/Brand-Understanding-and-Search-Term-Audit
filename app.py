@@ -583,11 +583,15 @@ if st.session_state.audit_results:
         st.session_state.select_all_triage = False
 
     # 2. Split Screen Layout: 50/50 Division
+    # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
-    # --- LEFT SIDE: DROPDOWN TABLE WITH ACTION CONTROLS ---
+    # --- LEFT SIDE: CLEAN TRIAGE CONTAINER ---
     with split_left:
-        with st.expander("🔍 Review & Triage Queue Ledger Table", expanded=True):
+        st.subheader("🔍 Review & Triage Queue Ledger Table")
+        st.caption("Select items using the checkboxes below and route them to their target database destination.")
+        
+        with st.expander("Expand Active Triage Operational Queue", expanded=True):
             if st.session_state.triage_list:
                 
                 # --- DYNAMIC SMART TOGGLE TEXT CALCULATOR ---
@@ -600,7 +604,7 @@ if st.session_state.audit_results:
                 majority_selected = checked_count > (total_items / 2)
                 toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
                 
-                # Action Control Buttons Array Header
+                # Clean, Native Action Control Buttons Array Header
                 act_col1, act_col2, act_col3 = st.columns(3)
                 
                 if act_col1.button(toggle_label, use_container_width=True):
@@ -615,20 +619,15 @@ if st.session_state.audit_results:
                 selected_terms = []
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Table Grid Header (Pinned cleanly above the scroll area)
-                hdr_cols = st.columns([1, 5])
-                hdr_cols[0].markdown("**Select**")
-                hdr_cols[1].markdown("**Search Query String**")
-                st.markdown("---")
-                
                 # --- FIXED HEIGHT NATIVE SCROLL CONTAINER (MATCHES TEXT AREA HEIGHT) ---
                 with st.container(height=350):
                     for index, term in enumerate(st.session_state.triage_list):
-                        row_cols = st.columns([1, 5])
+                        row_cols = st.columns([1, 9]) # Tighter layout adjustment since labels are removed
                         
                         is_selected = row_cols[0].checkbox(
                             " ", 
-                            key=f"triage_chk_row_{term}_{index}"
+                            key=f"triage_chk_row_{term}_{index}",
+                            label_visibility="collapsed"
                         )
                         row_cols[1].text(term)
                         
@@ -685,7 +684,6 @@ if st.session_state.audit_results:
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
 
-    st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
