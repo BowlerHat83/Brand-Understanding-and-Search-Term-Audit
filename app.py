@@ -584,6 +584,7 @@ if st.session_state.audit_results:
 
     # 2. Split Screen Layout: 50/50 Division
     # 2. Split Screen Layout: 50/50 Division
+    # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
     # --- LEFT SIDE: CLEAN TRIAGE CONTAINER ---
@@ -604,7 +605,7 @@ if st.session_state.audit_results:
                 majority_selected = checked_count > (total_items / 2)
                 toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
                 
-                # Clean, Native Action Control Buttons Array Header
+                # Clean, Native Action Control Buttons Array Header (No custom color logic)
                 act_col1, act_col2, act_col3 = st.columns(3)
                 
                 if act_col1.button(toggle_label, use_container_width=True):
@@ -622,7 +623,7 @@ if st.session_state.audit_results:
                 # --- FIXED HEIGHT NATIVE SCROLL CONTAINER (MATCHES TEXT AREA HEIGHT) ---
                 with st.container(height=350):
                     for index, term in enumerate(st.session_state.triage_list):
-                        row_cols = st.columns([1, 9]) # Tighter layout adjustment since labels are removed
+                        row_cols = st.columns([1, 9])
                         
                         is_selected = row_cols[0].checkbox(
                             " ", 
@@ -684,16 +685,16 @@ if st.session_state.audit_results:
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
 
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
     # =========================================================================
     # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
     # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
     
-    # Custom CSS Injection to apply padding to containers and tint action controls color metrics
+    # Padding Custom CSS Blocks
     st.markdown("""
         <style>
-            /* Smooth interior element padding injection to make it feel less cramped */
             div[data-testid="stExpander"] div[role="region"] {
                 padding: 24px 20px !important;
             }
@@ -703,8 +704,6 @@ if st.session_state.audit_results:
             .stTextArea textarea {
                 padding: 14px !important;
             }
-            
-            /* Global workspace controls primary alignment buttons overrides */
             div.stButton > button:first-child {
                 padding: 12px 20px !important;
                 font-weight: 600 !important;
@@ -792,7 +791,6 @@ if st.session_state.audit_results:
             </style>
         """, unsafe_allow_html=True)
         if st.button("🔄 Start New Audit", use_container_width=True):
-            # Clean up all tracking states safely
             for index, term in enumerate(st.session_state.get("triage_list", [])):
                 key_to_clear = f"triage_chk_row_{term}_{index}"
                 if key_to_clear in st.session_state:
