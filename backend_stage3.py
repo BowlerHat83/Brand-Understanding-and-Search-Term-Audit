@@ -19,8 +19,6 @@ def push_to_google_sheets(cache_key: str, payload: dict) -> str:
     # -------------------------------------------------------------------------
     # 🆕 FRESH SLATE GENERATION
     # -------------------------------------------------------------------------
-    # Appending a unique timestamp ensures Google treats this as a brand new asset,
-    # completely detached from any past files that threw permission errors.
     unique_id = int(time.time())
     sheet_title = f"New Optimization Ledger ({cache_key}) - {unique_id}"
     
@@ -55,3 +53,65 @@ def push_to_google_sheets(cache_key: str, payload: dict) -> str:
             worksheet.update(values=data_matrix, range_name="A1")
             
     return f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
+
+
+def update_brand_profile_cache(cache_key: str, new_relevant_terms: list, new_irrelevant_terms: list):
+    """
+    Appends new human-classified items directly back into the core Stage 1
+    Brand Profile spreadsheet cache row to intelligently expand long-term knowledge.
+    """
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+    gc = gspread.authorize(creds)
+    
+    # Open your master central configuration tracking sheet
+    sheet = gc.open_by_key(st.secrets["CACHE_SPREADSHEET_ID"]).sheet1
+    records = sheet.get_all_records()
+    
+    row_index = None
+    target_row_data = {}
+    
+    # Locate the active campaign profile row matching this exact workspace cache key
+    for idx, row in enumerate(records, start=2):
+        if str(row.get("Profile Name", "")).strip() == str(cache_key).strip():
+            row_index = idx
+            target_row_data = row
+            break
+            
+    if not row_index:
+        # If the row doesn't match or exist in cache records yet, abort write safely
+        return False
+
+    # --- PROCESS AND CONSOLIDATE TARGET RELEVANT / PROTECTED TERMS ---
+    existing_protected_raw = str(target_row_data.get("Protected Terms", "")).strip()
+    existing_protected_list = [item.strip() for item in existing_protected_raw.split(",") if item.strip()] if existing_protected_raw else []
+    
+    # Append fresh additions, filtering out case-insensitive duplicates
+    for term in new_relevant_terms:
+        clean_term = str(term).strip()
+        if clean_term.lower() not in [x.lower() for x in existing_protected_list]:
+            existing_protected_list.append(clean_term)
+            
+    updated_protected_cell_string = ", ".join(existing_protected_list)
+
+    # --- PROCESS AND CONSOLIDATE TARGET IRRELEVANT / EXCLUSION TERMS ---
+    existing_irrelevant_raw = str(target_row_data.get("Irrelevant Terms", "")).strip()
+    existing_irrelevant_list = [item.strip() for item in existing_irrelevant_raw.split(",") if item.strip()] if existing_irrelevant_raw else []
+    
+    # Append fresh additions, filtering out case-insensitive duplicates
+    for term in new_irrelevant_terms:
+        clean_term = str(term).strip()
+        if clean_term.lower() not in [x.lower() for x in existing_irrelevant_list]:
+            existing_irrelevant_list.append(clean_term)
+            
+    updated_irrelevant_cell_string = ", ".join(existing_irrelevant_list)
+
+    # --- SUBMIT MODIFIED PAYLOAD TO EXCEL CELLS (COLUMNS C AND E) ---
+    # Column C = Protected Terms, Column E = Irrelevant Terms
+    sheet.update(range_name=f"C{row_index}", values=[[updated_protected_cell_string]])
+    sheet.update(range_name=f"E{row_index}", values=[[updated_irrelevant_cell_string]])
+    
+    return True
