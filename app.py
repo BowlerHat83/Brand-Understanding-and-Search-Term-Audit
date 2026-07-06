@@ -315,47 +315,46 @@ if st.session_state.stage == 1:
 
     if st.session_state.brand_profile:
         st.markdown("### 📝 Refine Brand Understanding Rulesets")
-        st.caption("Double-click individual cells to add custom items, clear rows, or correct terms before cementing absolute rules.")
+        st.caption("Expand the categories below to make changes. Type your keywords cleanly with **one term per line**.")
         
         edited_profile = {}
         
-        # Row 1: Brand & Protected Core
-        row1_col1, row1_col2 = st.columns(2)
-        with row1_col1:
-            st.markdown("#### ✨ Allowed Brand Variants & Misspellings")
-            df_bv = pd.DataFrame(st.session_state.brand_profile.get("brand_variants", []), columns=["Brand Variants"])
-            ed_bv = st.data_editor(df_bv, num_rows="dynamic", use_container_width=True, key="editor_bv")
-            edited_profile["brand_variants"] = ed_bv["Brand Variants"].dropna().tolist()
+        # Helper string conversion functions to map line-breaks smoothly to python arrays
+        def list_to_textarea_string(lst):
+            return "\n".join([str(x).strip() for x in lst if str(x).strip()])
             
-        with row1_col2:
-            st.markdown("#### 🛡️ Protected Core Offering Terms (Safety Shield)")
-            df_prot = pd.DataFrame(st.session_state.brand_profile.get("protected_terms", []), columns=["Protected Core Terms"])
-            ed_prot = st.data_editor(df_prot, num_rows="dynamic", use_container_width=True, key="editor_prot")
-            edited_profile["protected_terms"] = ed_prot["Protected Core Terms"].dropna().tolist()
-            
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Row 2: Competitors & Irrelevant Concepts
-        row2_col1, row2_col2 = st.columns(2)
-        with row2_col1:
-            st.markdown("#### 🚨 Competitor Target Brand Names (Red Flags)")
-            df_comp = pd.DataFrame(st.session_state.brand_profile.get("competitors", []), columns=["Competitor Brands"])
-            ed_comp = st.data_editor(df_comp, num_rows="dynamic", use_container_width=True, key="editor_comp")
-            edited_profile["competitors"] = ed_comp["Competitor Brands"].dropna().tolist()
-        with row2_col2:
-            st.markdown("#### ❌ Clear Irrelevant Elements & Concepts")
-            df_irr = pd.DataFrame(st.session_state.brand_profile.get("irrelevant_terms", []), columns=["Irrelevant Concepts"])
-            ed_irr = st.data_editor(df_irr, num_rows="dynamic", use_container_width=True, key="editor_irr")
-            edited_profile["irrelevant_terms"] = ed_irr["Irrelevant Concepts"].dropna().tolist()
-            
-        st.markdown("<br>", unsafe_allow_html=True)
+        def textarea_string_to_list(txt):
+            return [line.strip() for line in txt.split("\n") if line.strip()]
 
-        # 🌐 Row 3: 5th Box - Allowed Languages Matrix
-        st.markdown("#### 🌐 Allowed Target Languages & Regions")
-        default_languages = st.session_state.brand_profile.get("allowed_languages", ["English"])
-        df_lang = pd.DataFrame(default_languages, columns=["Target Languages"])
-        ed_lang = st.data_editor(df_lang, num_rows="dynamic", use_container_width=False, width=400, key="editor_lang")
-        edited_profile["allowed_languages"] = ed_lang["Target Languages"].dropna().tolist()
+        # Dropdown Box 1: Brand Variants
+        with st.expander("✨ View/Edit Allowed Brand Variants & Misspellings", expanded=False):
+            bv_raw_list = st.session_state.brand_profile.get("brand_variants", [])
+            bv_text = st.text_area("Enter Brand Variants (One per line):", value=list_to_textarea_string(bv_raw_list), height=150, key="ta_bv")
+            edited_profile["brand_variants"] = textarea_string_to_list(bv_text)
+
+        # Dropdown Box 2: Protected Core Terms
+        with st.expander("🛡️ View/Edit Protected Core Offering Terms (Safety Shield)", expanded=False):
+            prot_raw_list = st.session_state.brand_profile.get("protected_terms", [])
+            prot_text = st.text_area("Enter Protected Core Terms (One per line):", value=list_to_textarea_string(prot_raw_list), height=150, key="ta_prot")
+            edited_profile["protected_terms"] = textarea_string_to_list(prot_text)
+
+        # Dropdown Box 3: Competitors
+        with st.expander("🚨 View/Edit Competitor Target Brand Names (Red Flags)", expanded=False):
+            comp_raw_list = st.session_state.brand_profile.get("competitors", [])
+            comp_text = st.text_area("Enter Competitor Brands (One per line):", value=list_to_textarea_string(comp_raw_list), height=150, key="ta_comp")
+            edited_profile["competitors"] = textarea_string_to_list(comp_text)
+
+        # Dropdown Box 4: Irrelevant Concepts
+        with st.expander("❌ View/Edit Clear Irrelevant Elements & Concepts", expanded=False):
+            irr_raw_list = st.session_state.brand_profile.get("irrelevant_terms", [])
+            irr_text = st.text_area("Enter Irrelevant Concepts (One per line):", value=list_to_textarea_string(irr_raw_list), height=150, key="ta_irr")
+            edited_profile["irrelevant_terms"] = textarea_string_to_list(irr_text)
+
+        # Dropdown Box 5: Target Languages
+        with st.expander("🌐 View/Edit Allowed Target Languages & Regions", expanded=False):
+            lang_raw_list = st.session_state.brand_profile.get("allowed_languages", ["English"])
+            lang_text = st.text_area("Enter Target Languages (One per line):", value=list_to_textarea_string(lang_raw_list), height=100, key="ta_lang")
+            edited_profile["allowed_languages"] = textarea_string_to_list(lang_text)
             
         st.markdown("---")
         
@@ -372,6 +371,7 @@ if st.session_state.stage == 1:
             st.session_state.stage = 2
             st.success("Absolute truth established and updated in cache database. Moving to Stage 2...")
             st.rerun()
+
 
 # ==========================================
 # 📊 STAGE 2: SEARCH TERMS AUDIT
@@ -604,16 +604,88 @@ if st.session_state.audit_results:
             
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # -------------------------------------------------------------------------
+    # 🧠 NEW INTERACTIVE HUMAN TRIAGE & KNOWLEDGE KICKBACK WORKSPACE
+    # -------------------------------------------------------------------------
+    st.markdown("### 🧠 Central Human Triage & Knowledge Expansion Engine")
+    st.caption("Classify borderline or ambiguous search queries captured from the audit below to permanently update your profile cache repository.")
+    
+    from backend_stage3 import update_brand_profile_cache
+
+    triage_terms = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
+    
+    triage_relevant = []
+    triage_irrelevant = []
+    
+    if triage_terms:
+        # Render a clean interface for rapid multi-checkbox selection
+        with st.expander(f"📥 Pending Interactive Triage Channels ({len(triage_terms)} Unresolved Targets)", expanded=True):
+            st.markdown("Select how these terms should be treated long-term:")
+            
+            # Table-style layout headers
+            head_cols = st.columns([3, 1, 1, 1])
+            head_cols[0].markdown("**Search Query String**")
+            head_cols[1].markdown("**Mark Relevant**")
+            head_cols[2].markdown("**Mark Irrelevant**")
+            head_cols[3].markdown("**Leave for Review**")
+            
+            for index, term in enumerate(triage_terms):
+                row_cols = st.columns([3, 1, 1, 1])
+                row_cols[0].text(term)
+                
+                # Checkboxes acting as a clear radio choice row
+                is_rel = row_cols[1].checkbox("👍 Relevant", key=f"rel_{index}")
+                is_irr = row_cols[2].checkbox("👎 Irrelevant", key=f"irr_{index}")
+                
+                if is_rel and not is_irr:
+                    triage_relevant.append(term)
+                elif is_irr and not is_rel:
+                    triage_irrelevant.append(term)
+                elif is_rel and is_irr:
+                    row_cols[3].warning("Choose only one side")
+                    
+            st.markdown("---")
+            if st.button("🚀 Cache Classified Knowledge", type="secondary", use_container_width=True):
+                if not triage_relevant and not triage_irrelevant:
+                    st.info("No modifications checked. Please select at least one optimization term to commit updates back into the cloud.")
+                else:
+                    with st.spinner("Injecting knowledge assets directly into core Stage 1 tracking architectures..."):
+                        # Extract basic brand portfolio signature as cache validation reference key
+                        raw_cache_key = st.session_state.cache_key
+                        profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
+                        
+                        success = update_brand_profile_cache(
+                            cache_key=profile_sig,
+                            new_relevant_terms=triage_relevant,
+                            new_irrelevant_terms=triage_irrelevant
+                        )
+                        if success:
+                            st.success("Knowledge Vault expansion complete! Terms successfully committed to Google Sheets repositories.")
+                            # Safely eliminate committed items from active review visual arrays locally
+                            res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in triage_relevant and r["Search Term"] not in triage_irrelevant]
+                            res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in triage_relevant and o["Search Term"] not in triage_irrelevant]
+                            st.session_state.audit_results = res_data
+                            st.rerun()
+                        else:
+                            st.error("Failed to sync knowledge profile cache targets. Check service configurations.")
+    else:
+        st.info("No terms found requiring manual review. Perfect classification stream achieved.")
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # -------------------------------------------------------------------------
+    # 📋 BACKWARD COMPATIBILITY DATA VIEWS
+    # -------------------------------------------------------------------------
     col_views = st.columns(2)
     with col_views[0]:
-        with st.expander("🔍 Standard Review Queue View", expanded=True):
+        with st.expander("🔍 Complete Review Queue Dataset View", expanded=False):
             df_rev = pd.DataFrame(res_data["review"])
             st.dataframe(df_rev, use_container_width=True, hide_index=True)
             if not df_rev.empty:
                 st.download_button("Download Review Queue CSV", data=df_rev.to_csv(index=False), file_name="review_queue_dump.csv", key="btn_dl_rev")
                 
     with col_views[1]:
-        with st.expander("⚠️ Potentially Overlooked Isolation Queue", expanded=True):
+        with st.expander("⚠️ Potentially Overlooked Isolation Queue View", expanded=False):
             df_ovr = pd.DataFrame(res_data["overlooked"])
             st.dataframe(df_ovr, use_container_width=True, hide_index=True)
             if not df_ovr.empty:
