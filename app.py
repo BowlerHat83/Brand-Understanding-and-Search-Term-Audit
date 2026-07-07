@@ -558,14 +558,12 @@ if st.session_state.get("audit_results") is not None:
     
     if overlooked_count > 0:
         if overlooked_count <= 10:
-            # Low volume warning handler
             st.error(
                 f"🚨 **Critical Attention Required:** {overlooked_count} search term(s) bypassed direct automation rules "
                 f"and were routed to the overlooked queue to prevent app suspension. Please expand the pipeline ledger "
                 f"below and manually review these missed terms."
             )
         else:
-            # High volume data skew warning handler
             st.error(
                 f"🔥 **Data Skew Warning:** {overlooked_count} search terms bypassed direct categorization. This volume "
                 f"indicates your source data is likely skewed and current outputs should be taken with a pinch of salt. "
@@ -597,18 +595,19 @@ if st.session_state.get("audit_results") is not None:
         st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
     if "select_all_triage" not in st.session_state:
         st.session_state.select_all_triage = False
+    # TRACKER: Initialize the cache state tracker if it doesn't exist yet
+    if "cache_committed" not in st.session_state:
+        st.session_state.cache_committed = False
 
     # 2. Split Screen Layout: 50/50 Division
     split_left, split_right = st.columns([1, 1])
     
-    # --- LEFT SIDE: CLEAN TRIAGE CONTAINER (NO EXPANDER DROPDOWN) ---
+    # --- LEFT SIDE: CLEAN TRIAGE CONTAINER ---
     with split_left:
         st.subheader("🔍 Review Queue Triage")
         st.caption("Select items using the checkboxes below and route them to their target database destination.")
         
         if st.session_state.triage_list:
-            
-            # --- DYNAMIC SMART TOGGLE TEXT CALCULATOR ---
             checked_count = 0
             for index, term in enumerate(st.session_state.triage_list):
                 if st.session_state.get(f"triage_chk_row_{term}_{index}", False):
@@ -618,7 +617,6 @@ if st.session_state.get("audit_results") is not None:
             majority_selected = checked_count > (total_items / 2)
             toggle_label = "⬜ Deselect All" if majority_selected else "✅ Select All"
             
-            # Clean, Native Action Control Buttons Array Header
             act_col1, act_col2, act_col3 = st.columns(3)
             
             if act_col1.button(toggle_label, use_container_width=True):
@@ -633,23 +631,18 @@ if st.session_state.get("audit_results") is not None:
             selected_terms = []
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- FIXED HEIGHT NATIVE SCROLL CONTAINER (MAINTAINED AT EXACTLY 350PX) ---
             with st.container(height=350):
                 for index, term in enumerate(st.session_state.triage_list):
                     row_cols = st.columns([1, 9])
-                    
                     is_selected = row_cols[0].checkbox(
                         " ", 
                         key=f"triage_chk_row_{term}_{index}",
                         label_visibility="collapsed"
                     )
                     row_cols[1].text(term)
-                    
                     if is_selected:
                         selected_terms.append(term)
-            # -----------------------------------------------------------------------------
                     
-            # Route Actions Processing Block
             if trigger_move_relevant or trigger_move_irrelevant:
                 if not selected_terms:
                     st.warning("⚠️ Please select items using the checkboxes or use the toggle button first.")
@@ -668,7 +661,6 @@ if st.session_state.get("audit_results") is not None:
                                 if notation not in res_data["copy_paste_list"]:
                                     res_data["copy_paste_list"].append(notation)
                     
-                    # Clear old state keys from session state
                     for index, term in enumerate(st.session_state.triage_list):
                         if term in selected_terms:
                             key_to_clear = f"triage_chk_row_{term}_{index}"
@@ -679,12 +671,13 @@ if st.session_state.get("audit_results") is not None:
                     res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
                     res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
                     
-                    # Recalculate metrics
                     res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
                     res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
                     res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
                     res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
                     
+                    # Reset the cache tracking because the user changed data layouts via triage desk
+                    st.session_state.cache_committed = False
                     st.session_state.audit_results = res_data
                     st.success(f"Successfully routed {len(selected_terms)} terms internally!")
                     st.rerun()
@@ -698,7 +691,6 @@ if st.session_state.get("audit_results") is not None:
         text_block = "\n".join(res_data["copy_paste_list"])
         st.text_area("Ready Matrix List Output Data Box", value=text_block, height=350, label_visibility="visible")
         
-        # Embedded Overlooked Container Dropdown
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("⚠️ Review Potentially Overlooked Terms Pipeline Ledger", expanded=False):
             overlooked_items = [o["Search Term"] for o in res_data.get("overlooked", [])]
@@ -713,38 +705,25 @@ if st.session_state.get("audit_results") is not None:
     # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
     
-    # Generic Padding Container Configurations
     st.markdown("""
         <style>
-            div[data-testid="stExpander"] div[role="region"] {
-                padding: 24px 20px !important;
-            }
-            div[data-testid="stForm"] {
-                padding: 20px !important;
-            }
-            .stTextArea textarea {
-                padding: 14px !important;
-            }
-            div.stButton > button:first-child {
-                padding: 12px 20px !important;
-                font-weight: 600 !important;
-            }
+            div[data-testid="stExpander"] div[role="region"] { padding: 24px 20px !important; }
+            div[data-testid="stForm"] { padding: 20px !important; }
+            .stTextArea textarea { padding: 14px !important; }
+            div.stButton > button:first-child { padding: 12px 20px !important; font-weight: 600 !important; }
         </style>
     """, unsafe_allow_html=True)
 
-    # Unique parent container block to isolate footer colors safely
     footer_container = st.container()
     with footer_container:
         foot_col1, foot_col2, foot_col3 = st.columns(3)
         
-        # Control Button A: Download Workbook Ledger (Green Variant Tint)
+        # Control Button A: Download Workbook Ledger
         with foot_col1:
             st.markdown("""
                 <style>
                     div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
-                        background-color: #2E7D32 !important;
-                        color: white !important;
-                        border: 1px solid #1B5E20 !important;
+                        background-color: #2E7D32 !important; color: white !important; border: 1px solid #1B5E20 !important;
                     }
                     div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(1) button:hover {
                         background-color: #1B5E20 !important;
@@ -752,7 +731,6 @@ if st.session_state.get("audit_results") is not None:
                 </style>
             """, unsafe_allow_html=True)
             
-            # Formulate the multi-tab dictionary layout for local flattening processing
             payload = {
                 "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
                 "Relevant Search Terms": res_data["relevant"],
@@ -762,9 +740,7 @@ if st.session_state.get("audit_results") is not None:
                 "Root Negatives": res_data["roots"]
             }
             
-            # Generate the raw data stream using the revamped backend engine
             csv_stream = push_to_google_sheets(st.session_state.cache_key, payload)
-            
             if csv_stream is not None:
                 st.download_button(
                     label="🚀 Download Workbook Ledger (.csv)",
@@ -776,21 +752,26 @@ if st.session_state.get("audit_results") is not None:
             else:
                 st.error("Matrix stream build failed.")
 
-        # Control Button B: Cache Audit Into Brand Knowledge (Red Variant Tint)
+        # Control Button B: Cache Audit Into Brand Knowledge (Dynamic One-Time Lock Setup)
         with foot_col2:
             st.markdown("""
                 <style>
                     div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
-                        background-color: #C62828 !important;
-                        color: white !important;
-                        border: 1px solid #B71C1C !important;
+                        background-color: #C62828 !important; color: white !important; border: 1px solid #B71C1C !important;
                     }
                     div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:hover {
                         background-color: #B71C1C !important;
                     }
+                    div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:disabled {
+                        background-color: #E0E0E0 !important; color: #9E9E9E !important; border: 1px solid #BDBDBD !important;
+                    }
                 </style>
             """, unsafe_allow_html=True)
-            if st.button("💾 Cache Audit into Brand Knowledge", use_container_width=True):
+            
+            # Dynamically switch context formatting if already committed to local state
+            cache_btn_label = "✅ Audit Knowledge Cached" if st.session_state.cache_committed else "💾 Cache Audit into Brand Knowledge"
+            
+            if st.button(cache_btn_label, use_container_width=True, disabled=st.session_state.cache_committed):
                 with st.spinner("Committing verified session definitions directly to cloud master ledger cache..."):
                     raw_cache_key = st.session_state.cache_key
                     profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
@@ -804,18 +785,18 @@ if st.session_state.get("audit_results") is not None:
                         new_irrelevant_terms=irr_payload
                     )
                     if success:
+                        st.session_state.cache_committed = True
                         st.success("Cloud database successfully trained with current session intelligence metrics parameters!")
+                        st.rerun()
                     else:
                         st.error("Pipeline connectivity error tracking database parameters back into cloud rows layer.")
 
-        # Control Button C: Start Fresh Engine Matrix Audit Run (Blue Variant Tint)
+        # Control Button C: Start Fresh Engine Matrix Audit Run
         with foot_col3:
             st.markdown("""
                 <style>
                     div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
-                        background-color: #1565C0 !important;
-                        color: white !important;
-                        border: 1px solid #0D47A1 !important;
+                        background-color: #1565C0 !important; color: white !important; border: 1px solid #0D47A1 !important;
                     }
                     div[data-testid="stBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(3) button:hover {
                         background-color: #0D47A1 !important;
@@ -832,8 +813,8 @@ if st.session_state.get("audit_results") is not None:
                     del st.session_state.triage_list
                 if "audit_results" in st.session_state:
                     del st.session_state.audit_results
+                if "cache_committed" in st.session_state:
+                    del st.session_state.cache_committed
                 
                 st.session_state.stage = 1
-                st.session_state.brand_profile = None
-                st.session_state.locked_rules = None
-                st.rerun()
+                st.session_state.brand_profile
