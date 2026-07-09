@@ -361,7 +361,7 @@ elif st.session_state.stage == 2:
     
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"], disabled=st.session_state.audit_running)
     
-    BATCH_SIZE = 40
+    BATCH_SIZE = 200
     
     if uploaded_file:
         try:
