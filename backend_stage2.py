@@ -8,7 +8,7 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     """
     Sends a batch of search terms to Gemini to classify based on established brand truth rulesets.
     Optimized for raw execution speed using native structured JSON outputs and constrained token limits.
-    Enforces a ultra-conservative, defensive "guilty until proven innocent" classification posture.
+    Enforces an ultra-conservative, defensive "guilty until proven innocent" classification posture.
     """
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -98,7 +98,7 @@ def extract_root_negatives(irrelevant_phrases: list, saved_phrases: list, protec
 def apply_ads_notation(term: str, is_exact: bool = False) -> str:
     """
     Wraps phrases into Google Ads Negative notation syntax.
-    Strictly defaults to negative phrase match match ("term") for universal formatting.
+    Strictly defaults to negative phrase match ("term") for universal formatting.
     """
     clean_term = term.strip().lower().strip("[]\"'")
     if is_exact:
