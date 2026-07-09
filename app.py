@@ -177,10 +177,7 @@ st.markdown("---")
 if st.session_state.stage == 1:
     st.header("Stage 1: Brand Understanding Audit")
     
-    # 1. Fetch raw cache entries from sheet rows
     cache_options = get_cached_profiles()
-    
-    # 2. Parse out isolated, unique portfolio brand tokens
     unique_brands = set()
     for option in cache_options:
         if option != "Create New":
@@ -188,8 +185,6 @@ if st.session_state.stage == 1:
             unique_brands.add(parts[0].strip())
             
     brand_list = ["-Please Select-", "Create New"] + sorted(list(unique_brands), key=str.lower)
-    
-    # --- CASCADING INTERFACE BLOCKS ---
     col_b1, col_b2 = st.columns(2)
     
     with col_b1:
@@ -199,14 +194,12 @@ if st.session_state.stage == 1:
     
     with col_b2:
         if selected_brand_tier not in ["-Please Select-", "Create New"]:
-            # Extract sub-components matching chosen brand portfolio
             matching_workspaces = []
             for option in cache_options:
                 if option.startswith(f"{selected_brand_tier} | "):
                     workspace_suffix = option.replace(f"{selected_brand_tier} | ", "").strip()
                     matching_workspaces.append(workspace_suffix)
             
-            # Auto-inject safety fallback to force active choice selection
             workspace_options = ["-Please Select-"] + sorted(matching_workspaces, key=str.lower)
             selected_workspace_tier = st.selectbox("🎯 Select Active Campaign / Ad Group Workspace", options=workspace_options, index=0)
             
@@ -219,23 +212,19 @@ if st.session_state.stage == 1:
     
     st.markdown("---")
     
-    # --- SCENARIO A: BLOCKED ON SELECT ---
     if selected_cache == "-Please Select-" or selected_brand_tier == "-Please Select-":
         st.info("👋 Please select a valid Brand Portfolio and Ad Group Workspace to load parameters, or choose 'Create New'.")
         st.session_state.brand_profile = None
         st.session_state.locked_rules = None
 
-    # --- SCENARIO B: ACTIVE LOAD FROM CACHE ---
     elif selected_cache != "Create New":
         if st.session_state.brand_profile is None or st.session_state.get('cache_key') != selected_cache:
             try:
                 st.session_state.brand_profile = load_cached_profile(selected_cache)
-                
                 cache_parts = selected_cache.split(" | ")
                 st.session_state.temp_brand_name = cache_parts[0]
                 st.session_state.temp_campaign_type = cache_parts[1] if len(cache_parts) > 1 else "Search"
                 st.session_state.temp_ad_group_name = cache_parts[2] if len(cache_parts) > 2 else ""
-                    
                 st.session_state.locked_rules = st.session_state.brand_profile
                 st.session_state.cache_key = selected_cache
             except Exception as e:
@@ -243,7 +232,6 @@ if st.session_state.stage == 1:
                 
         st.success(f"📋 Loaded configuration workspace layout baseline: **{selected_cache}**")
         
-        # Outputs rendered exclusively as locked selectboxes
         row1_left, row1_right = st.columns(2)
         with row1_left:
             st.selectbox("Brand Name", options=[st.session_state.temp_brand_name], disabled=True)
@@ -256,7 +244,6 @@ if st.session_state.stage == 1:
         with row2_right:
             st.text_input("Core Offering of the Ad Group", value="Loaded from Cache Base", disabled=True)
 
-    # --- SCENARIO C: FRESH PROFILE BUILDER ---
     else:
         if st.session_state.get('last_selected_cache') and st.session_state.get('last_selected_cache') not in ["Create New", "-Please Select-"]:
             st.session_state.brand_profile = None
@@ -319,38 +306,32 @@ if st.session_state.stage == 1:
         
         edited_profile = {}
         
-        # Helper string conversion functions to map line-breaks smoothly to python arrays
         def list_to_textarea_string(lst):
             return "\n".join([str(x).strip() for x in lst if str(x).strip()])
             
         def textarea_string_to_list(txt):
             return [line.strip() for line in txt.split("\n") if line.strip()]
 
-        # Dropdown Box 1: Brand Variants
         with st.expander("✨ View/Edit Allowed Brand Variants & Misspellings", expanded=False):
             bv_raw_list = st.session_state.brand_profile.get("brand_variants", [])
             bv_text = st.text_area("Enter Brand Variants (One per line):", value=list_to_textarea_string(bv_raw_list), height=150, key="ta_bv")
             edited_profile["brand_variants"] = textarea_string_to_list(bv_text)
 
-        # Dropdown Box 2: Protected Core Terms
         with st.expander("🛡️ View/Edit Protected Core Offering Terms (Safety Shield)", expanded=False):
             prot_raw_list = st.session_state.brand_profile.get("protected_terms", [])
             prot_text = st.text_area("Enter Protected Core Terms (One per line):", value=list_to_textarea_string(prot_raw_list), height=150, key="ta_prot")
             edited_profile["protected_terms"] = textarea_string_to_list(prot_text)
 
-        # Dropdown Box 3: Competitors
         with st.expander("🚨 View/Edit Competitor Target Brand Names (Red Flags)", expanded=False):
             comp_raw_list = st.session_state.brand_profile.get("competitors", [])
             comp_text = st.text_area("Enter Competitor Brands (One per line):", value=list_to_textarea_string(comp_raw_list), height=150, key="ta_comp")
             edited_profile["competitors"] = textarea_string_to_list(comp_text)
 
-        # Dropdown Box 4: Irrelevant Concepts
         with st.expander("❌ View/Edit Clear Irrelevant Elements & Concepts", expanded=False):
             irr_raw_list = st.session_state.brand_profile.get("irrelevant_terms", [])
             irr_text = st.text_area("Enter Irrelevant Concepts (One per line):", value=list_to_textarea_string(irr_raw_list), height=150, key="ta_irr")
             edited_profile["irrelevant_terms"] = textarea_string_to_list(irr_text)
 
-        # Dropdown Box 5: Target Languages
         with st.expander("🌐 View/Edit Allowed Target Languages & Regions", expanded=False):
             lang_raw_list = st.session_state.brand_profile.get("allowed_languages", ["English"])
             lang_text = st.text_area("Enter Target Languages (One per line):", value=list_to_textarea_string(lang_raw_list), height=100, key="ta_lang")
@@ -380,7 +361,6 @@ elif st.session_state.stage == 2:
     
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"], disabled=st.session_state.audit_running)
     
-    # Optimized batch structure for balanced API economics and performance
     BATCH_SIZE = 100
     
     if uploaded_file:
@@ -401,7 +381,7 @@ elif st.session_state.stage == 2:
                     f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
                 )
             else:
-                st.error("🛑 **Error Code: E005 - System Operational Failure**\n\nMissing Required Column Mapping. File must contain a column titled either 'Search Term' or 'Query'.")
+                st.error("🛑 **Error Code: E005 - Missing Required Column Mapping. File must contain a column titled either 'Search Term' or 'Query'.")
         except Exception as e:
             st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown: {str(e)}")
 
@@ -493,6 +473,7 @@ elif st.session_state.stage == 2:
                             "Search Term": term, "Confidence Score": 0.00, "Reasoning": "System reconciliation catch alignment"
                         })
 
+                # --- HIGH-SPEED PRE-COMPUTED MATRIX COMPILATION (FIXED SLOWDOWN) ---
                 irr_phrases = [r["Search Term"] for r in irrelevant_list]
                 saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
                 protected_list = st.session_state.locked_rules.get("protected_terms", [])
@@ -503,22 +484,21 @@ elif st.session_state.stage == 2:
                     for word, count in raw_roots.items()
                 ]
                 
-                final_negatives_output = []
-                active_root_words = set(raw_roots.keys())
+                # Convert list variables to high-speed sets to secure instant O(1) matching evaluation
+                active_root_words = {word.lower() for word in raw_roots.keys()}
                 
-                for rn in root_negatives_payload:
-                    final_negatives_output.append(rn["Ads Notation Match"])
-                    
+                protected_words = set()
+                for p_term in protected_list:
+                    protected_words.update(re.findall(r'\b\w+\b', p_term.lower()))
+                
+                final_negatives_output = [rn["Ads Notation Match"] for rn in root_negatives_payload]
+                
+                # Bulk step tokenization avoiding deep nested array scan loops
                 for irr in irrelevant_list:
                     phrase = irr["Search Term"]
                     phrase_words = set(re.findall(r'\b\w+\b', phrase.lower()))
-                    protected_words = set()
-                    for p_term in protected_list:
-                        protected_words.update(re.findall(r'\b\w+\b', p_term.lower()))
-                        
-                    if bool(phrase_words & protected_words):
-                        final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
-                    elif not (phrase_words & active_root_words):
+                    
+                    if (phrase_words & protected_words) or not (phrase_words & active_root_words):
                         final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
                             
                 final_negatives_output = list(set(final_negatives_output))
@@ -595,7 +575,6 @@ if st.session_state.get("audit_results") is not None:
         st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
     if "select_all_triage" not in st.session_state:
         st.session_state.select_all_triage = False
-    # TRACKER: Initialize the cache state tracker if it doesn't exist yet
     if "cache_committed" not in st.session_state:
         st.session_state.cache_committed = False
 
@@ -643,40 +622,56 @@ if st.session_state.get("audit_results") is not None:
                     if is_selected:
                         selected_terms.append(term)
                     
+            # --- HIGH-SPEED SET-MAPPED TRIAGE ACTION DESK (FIXED SLOWDOWN) ---
             if trigger_move_relevant or trigger_move_irrelevant:
                 if not selected_terms:
                     st.warning("⚠️ Please select items using the checkboxes or use the toggle button first.")
                 else:
                     is_rel = trigger_move_relevant
                     
+                    # Flatten arrays into instant O(1) memory hash-sets
+                    existing_relevant = {r["Search Term"] for r in res_data["relevant"]}
+                    existing_irrelevant = {i["Search Term"] for i in res_data["irrelevant"]}
+                    existing_copy_paste = set(res_data["copy_paste_list"])
+                    
+                    new_relevant_entries = []
+                    new_irrelevant_entries = []
+                    new_notations = []
+                    
                     if is_rel:
                         for t in selected_terms:
-                            if not any(r["Search Term"] == t for r in res_data["relevant"]):
-                                res_data["relevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
+                            if t not in existing_relevant:
+                                new_relevant_entries.append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
+                        res_data["relevant"].extend(new_relevant_entries)
                     else:
                         for t in selected_terms:
-                            if not any(r["Search Term"] == t for r in res_data["irrelevant"]):
-                                res_data["irrelevant"].append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
+                            if t not in existing_irrelevant:
+                                new_irrelevant_entries.append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
                                 notation = apply_ads_notation(t, is_exact=False)
-                                if notation not in res_data["copy_paste_list"]:
-                                    res_data["copy_paste_list"].append(notation)
+                                if notation not in existing_copy_paste:
+                                    new_notations.append(notation)
+                                    existing_copy_paste.add(notation)
+                                    
+                        res_data["irrelevant"].extend(new_irrelevant_entries)
+                        res_data["copy_paste_list"].extend(new_notations)
                     
+                    # Evacuate selected terms instantly
+                    triage_set = set(selected_terms)
                     for index, term in enumerate(st.session_state.triage_list):
-                        if term in selected_terms:
+                        if term in triage_set:
                             key_to_clear = f"triage_chk_row_{term}_{index}"
                             if key_to_clear in st.session_state:
                                 del st.session_state[key_to_clear]
                                 
-                    st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
-                    res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
-                    res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
+                    st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in triage_set]
+                    res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in triage_set]
+                    res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in triage_set]
                     
                     res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
                     res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
                     res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
                     res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
                     
-                    # Reset the cache tracking because the user changed data layouts via triage desk
                     st.session_state.cache_committed = False
                     st.session_state.audit_results = res_data
                     st.success(f"Successfully routed {len(selected_terms)} terms internally!")
@@ -752,7 +747,7 @@ if st.session_state.get("audit_results") is not None:
             else:
                 st.error("Matrix stream build failed.")
 
-        # Control Button B: Cache Audit Into Brand Knowledge (Dynamic One-Time Lock Setup)
+        # Control Button B: Cache Audit Into Brand Knowledge
         with foot_col2:
             st.markdown("""
                 <style>
@@ -768,7 +763,6 @@ if st.session_state.get("audit_results") is not None:
                 </style>
             """, unsafe_allow_html=True)
             
-            # Dynamically switch context formatting if already committed to local state
             cache_btn_label = "✅ Audit Knowledge Cached" if st.session_state.cache_committed else "💾 Cache Audit into Brand Knowledge"
             
             if st.button(cache_btn_label, use_container_width=True, disabled=st.session_state.cache_committed):
@@ -817,4 +811,4 @@ if st.session_state.get("audit_results") is not None:
                     del st.session_state.cache_committed
                 
                 st.session_state.stage = 1
-                st.session_state.brand_profile
+                st.rerun()
