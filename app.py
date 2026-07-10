@@ -353,177 +353,136 @@ if st.session_state.stage == 1:
             st.success("Absolute truth established and updated in cache database. Moving to Stage 2...")
             st.rerun()
 
-# ==========================================
-# 📊 STAGE 2: SEARCH TERMS AUDIT ENGINE
-# ==========================================
+# =====================================================================
+# STAGE 2: PRECISION MATRIX AUDIT (AI PROCESSING LAYER)
+# =====================================================================
 elif st.session_state.stage == 2:
-    st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
-    
-    uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"], disabled=st.session_state.audit_running)
-    
-    BATCH_SIZE = 166
-    
-    if uploaded_file:
-        try:
-            uploaded_file.seek(0)
-            df_preview = pd.read_csv(uploaded_file)
-            term_col_preview = next((c for c in df_preview.columns if "search term" in c.lower() or "query" in c.lower()), None)
-            
-            if term_col_preview:
-                raw_count = len(df_preview[term_col_preview].dropna().drop_duplicates())
-                num_batches = (raw_count + BATCH_SIZE - 1) // BATCH_SIZE
-                
-                paid_seconds = max(int(num_batches * 2.0), 2)
-                paid_display = f"{paid_seconds // 60} min {paid_seconds % 60} sec" if paid_seconds >= 60 else f"{paid_seconds} seconds"
-                
-                st.warning(
-                    f"📊 **Dataset Loaded:** {raw_count} unique search terms detected ({num_batches} loops of {BATCH_SIZE} rows).\n\n"
-                    f"⏱️ **Precision Tier Speed Matrix:** Estimated completion in **{paid_display}**."
-                )
-            else:
-                st.error("🛑 **Error Code: E005 - Missing Required Column Mapping. File must contain a column titled either 'Search Term' or 'Query'.")
-        except Exception as e:
-            st.error(f"🔧 **Error Code: E005 - System Operational Failure**\n\nFile read breakdown: {str(e)}")
+    st.header("Stage 2: Precision Matrix Execution")
+    st.subheader("Executing AI Negative Keyword Analysis")
 
-    button_text = "Processing Audit Engine Matrix..." if st.session_state.audit_running else "Launch Search Terms Audit"
+    # Safety structural assertion checks
+    if "brand_profile" not in st.session_state or not st.session_state.brand_profile:
+        st.error("❌ Brand Profile baseline data is missing. Please return to Stage 1.")
+        if st.button("⬅️ Back to Stage 1"):
+            st.session_state.stage = 1
+            st.rerun()
+        st.stop()
+
+    if "raw_search_terms" not in st.session_state or not st.session_state.raw_search_terms:
+        st.error("❌ Search terms target data is missing. Please return to Stage 1.")
+        if st.button("⬅️ Back to Stage 1"):
+            st.session_state.stage = 1
+            st.rerun()
+        st.stop()
+
+    search_terms = st.session_state.raw_search_terms
+    total_input_count = len(search_terms)
+
+    # Initialize Stage 2 localized tracking state variables if not present
+    if "audit_results" not in st.session_state:
+        st.session_state.audit_results = {}
+
+    # Calculate real-time state values from active session state ledger
+    processed_terms_set = set(st.session_state.audit_results.keys())
+    relevant_list = [t for t, v in st.session_state.audit_results.items() if v["classification"] == "relevant"]
+    irrelevant_list = [t for t, v in st.session_state.audit_results.items() if v["classification"] == "irrelevant"]
+    review_list = [t for t, v in st.session_state.audit_results.items() if v["classification"] == "review"]
     
-    if st.button(button_text, type="secondary", use_container_width=True, disabled=st.session_state.audit_running):
-        if not uploaded_file:
-            st.error("🛑 **Error Code: E002 - Missing File Stream**\n\nThe Search Term Ledger dataset CSV upload path is missing.")
-        else:
-            st.session_state.audit_running = True
+    # Track items missed by the API generation boundary
+    current_loop_index = len(processed_terms_set)
+    overlooked_list = [t for t in search_terms[:current_loop_index] if t not in processed_terms_set]
+
+    # --- PROGRESS USER INTERFACE ---
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.info("💡 The app uses a fast, paced execution loop (50 terms per chunk) to maximize Gemini generation speeds and prevent server connection drops.")
+    with col2:
+        if st.button("🔄 Clear & Restart Audit", type="secondary"):
+            st.session_state.audit_results = {}
             st.rerun()
 
-    if st.session_state.audit_running:
-        with st.spinner("⏳ Running Search Terms Audit Engine... Please do not close or refresh this tab."):
-            try:
-                uploaded_file.seek(0)
-                df_input = pd.read_csv(uploaded_file)
-                term_col = next((c for c in df_input.columns if "search term" in c.lower() or "query" in c.lower()), None)
-                search_terms = df_input[term_col].dropna().drop_duplicates().tolist()
-                total_input_count = len(search_terms)
-                
-                progress_bar = st.progress(0)
-                counter_text = st.empty()
-                
-                metric_slots = st.columns(5)
-                m1, m2, m3, m4, m5 = (
-                    metric_slots[0].empty(), metric_slots[1].empty(), 
-                    metric_slots[2].empty(), metric_slots[3].empty(), metric_slots[4].empty()
-                )
-                
-                relevant_list, irrelevant_list, review_list, overlooked_list = [], [], [], []
-                processed_terms_set = set()
-                
-                # --- CHUNK PROCESSING LOOP ---
-                for i in range(0, total_input_count, BATCH_SIZE):
-                    batch = search_terms[i:i + BATCH_SIZE]
-                    counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
-                    
-                    api_payload_batch = []
-                    for term in batch:
-                        if is_foreign_script(term):
-                            irrelevant_list.append({
-                                "Search Term": term, "Confidence Score": 1.00,
-                                "Reasoning": "Automated Guardrail: Detected foreign non-Latin alphabet character."
-                            })
-                            processed_terms_set.add(term)
-                        else:
-                            api_payload_batch.append(term)
+    progress_bar = st.progress(len(processed_terms_set) / total_input_count if total_input_count > 0 else 0.0)
+    counter_text = st.empty()
 
-                    if api_payload_batch:
-                        try:
-                            batch_results = classify_terms_batch(api_payload_batch, st.session_state.locked_rules)
-                            for res in batch_results:
-                                term_string = res.get("search_term", "")
-                                if term_string:
-                                    processed_terms_set.add(term_string)
-                                    row_data = {
-                                        "Search Term": term_string,
-                                        "Confidence Score": res.get("confidence", 1.00),
-                                        "Reasoning": res.get("reason", "Classified successfully")
-                                    }
-                                    if res.get("classification") == "relevant":
-                                        relevant_list.append(row_data)
-                                    elif res.get("classification") == "irrelevant":
-                                        irrelevant_list.append(row_data)
-                                    else:
-                                        review_list.append(row_data)
-                        except Exception as batch_err:
-                            for term in api_payload_batch:
-                                if term not in processed_terms_set:
-                                    overlooked_list.append({
-                                        "Search Term": term, "Confidence Score": 0.00,
-                                        "Reasoning": f"Batch exception caught: {str(batch_err)}"
-                                    })
-                                    processed_terms_set.add(term)
-                    
-                    percent_complete = int((min(i + BATCH_SIZE, total_input_count) / total_input_count) * 100)
-                    progress_bar.progress(percent_complete)
-                    
-                    m1.metric("Processed", f"{len(processed_terms_set)}")
-                    m2.metric("Relevant ✅", f"{len(relevant_list)}")
-                    m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
-                    m4.metric("Review Queue 🔍", f"{len(review_list)}")
-                    m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
+    # Dynamic Live Metric Board Layout
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Processed", f"{len(processed_terms_set)}")
+    m2.metric("Relevant ✅", f"{len(relevant_list)}")
+    m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
+    m4.metric("Review Queue 🔍", f"{len(review_list)}")
+    m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
 
-                for term in search_terms:
-                    if term not in processed_terms_set:
-                        overlooked_list.append({
-                            "Search Term": term, "Confidence Score": 0.00, "Reasoning": "System reconciliation catch alignment"
-                        })
+    # Check if processing is complete
+    if len(processed_terms_set) >= total_input_count:
+        st.success("🎉 Precision Matrix Processing Complete!")
+        
+        if st.button("🚀 Proceed to Stage 3: Triage Desk", type="primary"):
+            st.session_state.stage = 3
+            st.rerun()
+    else:
+        # Action button to trigger processing execution
+        if st.button("⚡ Start Precision Matrix Audit", type="primary"):
+            from backend_stage2 import classify_terms_batch
+            import time
 
-                # --- HIGH-SPEED PRE-COMPUTED MATRIX COMPILATION (FIXED SLOWDOWN) ---
-                irr_phrases = [r["Search Term"] for r in irrelevant_list]
-                saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
-                protected_list = st.session_state.locked_rules.get("protected_terms", [])
-                
-                raw_roots = extract_root_negatives(irr_phrases, saved_phrases, protected_list)
-                root_negatives_payload = [
-                    {"Root Word": word, "Blocked Volume Count": count, "Ads Notation Match": apply_ads_notation(word, is_exact=False)}
-                    for word, count in raw_roots.items()
-                ]
-                
-                # Convert list variables to high-speed sets to secure instant O(1) matching evaluation
-                active_root_words = {word.lower() for word in raw_roots.keys()}
-                
-                protected_words = set()
-                for p_term in protected_list:
-                    protected_words.update(re.findall(r'\b\w+\b', p_term.lower()))
-                
-                final_negatives_output = [rn["Ads Notation Match"] for rn in root_negatives_payload]
-                
-                # Bulk step tokenization avoiding deep nested array scan loops
-                for irr in irrelevant_list:
-                    phrase = irr["Search Term"]
-                    phrase_words = set(re.findall(r'\b\w+\b', phrase.lower()))
-                    
-                    if (phrase_words & protected_words) or not (phrase_words & active_root_words):
-                        final_negatives_output.append(apply_ads_notation(phrase, is_exact=False))
-                            
-                final_negatives_output = list(set(final_negatives_output))
-                
-                st.session_state.audit_results = {
-                    "metrics": {
-                        "Total Inputted Terms": total_input_count,
-                        "Relevant Terms": len(relevant_list),
-                        "Irrelevant Terms": len(irrelevant_list),
-                        "Review Queue Terms": len(review_list),
-                        "Potentially Overlooked Terms": len(overlooked_list),
-                        "Extracted Roots Count": len(root_negatives_payload)
-                    },
-                    "relevant": relevant_list, "irrelevant": irrelevant_list,
-                    "review": review_list, "overlooked": overlooked_list,
-                    "roots": root_negatives_payload, "copy_paste_list": final_negatives_output
-                }
-                st.session_state.audit_running = False
-                st.success("Analysis matrix generated.")
-                st.rerun()
-                
-            except Exception as main_err:
-                st.session_state.audit_running = False
-                st.error(f"🔧 **Error Code: E005** - Computation failed: {str(main_err)}")
+            # --- CHUNK PROCESSING CONFIGURATION ---
+            BATCH_SIZE = 50  # Small, lightweight chunk structure for maximum model velocity
+            batch_count = 0  
 
+            # --- CHUNK PROCESSING LOOP ---
+            for i in range(0, total_input_count, BATCH_SIZE):
+                batch = search_terms[i:i + BATCH_SIZE]
+                
+                # Check if this batch is already completely processed to allow resumption
+                if all(t in st.session_state.audit_results for t in batch):
+                    continue
+
+                # API Quota Pacer: Every 12 fast requests, take a 45-second breath 
+                # to reset Google's Requests-Per-Minute (RPM) wall safely.
+                if batch_count > 0 and batch_count % 12 == 0:
+                    for remaining in range(45, 0, -1):
+                        counter_text.text(f"⏳ Rate-Limit Protection: Pausing for {remaining}s to refresh Google API limits...")
+                        time.sleep(1)
+                
+                counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
+                
+                # Call the rock-solid text-parsed backend batch classifier
+                batch_results = classify_terms_batch(batch, st.session_state.brand_profile)
+                batch_count += 1  
+                
+                # Safely write results into state ledger
+                for res in batch_results:
+                    st.session_state.audit_results[res["search_term"]] = {
+                        "classification": res["classification"],
+                        "confidence": res["confidence"],
+                        "reason": res["reason"]
+                    }
+                
+                # Recalculate runtime variables for live display update
+                processed_terms_set = set(st.session_state.audit_results.keys())
+                relevant_list = [t for t, v in st.session_state.audit_results.items() if v["classification"] == "relevant"]
+                irrelevant_list = [t for t, v in st.session_state.audit_results.items() if v["classification"] == "irrelevant"]
+                review_list = [t for t, v in st.session_state.audit_results.items() if v["classification"] == "review"]
+                overlooked_list = [t for t in search_terms[:i + len(batch)] if t not in processed_terms_set]
+                
+                # Refresh progress metrics live
+                progress_bar.progress(len(processed_terms_set) / total_input_count)
+                m1.metric("Processed", f"{len(processed_terms_set)}")
+                m2.metric("Relevant ✅", f"{len(relevant_list)}")
+                m3.metric("Irrelevant ❌", f"{len(irrelevant_list)}")
+                m4.metric("Review Queue 🔍", f"{len(review_list)}")
+                m5.metric("Overlooked ⚠️", f"{len(overlooked_list)}")
+                
+                # Stabilizer step breath
+                time.sleep(1)
+            
+            counter_text.text("Processing complete! Refreshing interface...")
+            st.rerun()
+
+# =====================================================================
+# STAGE 3: TRIAGE DESK & EXPORT ROUTING
+# =====================================================================
+elif st.session_state.stage == 3:
 # ==========================================
 # 📊 OUTPUT SUMMARY & BATCH TRIAGE
 # ==========================================
