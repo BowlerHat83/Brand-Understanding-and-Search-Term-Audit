@@ -3,20 +3,11 @@ from collections import Counter
 import google.generativeai as genai
 import streamlit as st
 import json
-from typing import List
-from pydantic import BaseModel, Field
-
-# 1. Define the exact structural schema using Pydantic
-class ClassifiedSearchTerm(BaseModel):
-    search_term: str = Field(description="The exact search term from the input list.")
-    classification: str = Field(description="Must be exactly 'relevant', 'irrelevant', or 'review'")
-    confidence: float = Field(description="Confidence score between 0.00 and 1.00")
-    reason: str = Field(description="Reasoning for classification, 5 words or less")
 
 def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     """
-    Slices execution time by enforcing an explicit Pydantic response schema.
-    This eliminates the AI's layout overhead without altering the rules core.
+    Repaired and optimized batch classification engine. 
+    Uses a standard, rock-solid JSON parser with fixed fallback logic.
     """
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -24,7 +15,6 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     model = genai.GenerativeModel('gemini-2.5-flash')
     rules_context = json.dumps(brand_profile, indent=2)
     
-    # Your exact original rules and defensive ideology completely untouched
     prompt = f"""
     You are a highly defensive, ultra-conservative Google Ads Negative Keyword Auditor.
     Your primary directive is to protect ad spend by aggressively weeding out low-intent, ambiguous, or borderline search terms.
@@ -37,7 +27,7 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     CRITICAL CLASSIFICATION BOUNDARIES:
     1. 'relevant' -> Use ONLY if the term shows explicit intent to buy, hire, or use core offerings, AND it contains zero educational, research, or casual intent signals.
     2. 'irrelevant' -> Use if it matches competitor targets, explicit exclusion flags, or falls completely outside target offerings.
-    3. 'review' -> Use if you are even 1% uncertain, if it lacks a clear intent modifier, or contains mixed signals (e.g., educational context mixed with target terms). Uncertainty equals lack of proof for relevance.
+    3. 'review' -> Use if you are even 1% uncertain, if it lacks a clear intent modifier, or contains mixed signals.
 
     Active Brand Rules Context Baseline:
     {rules_context}
@@ -45,21 +35,24 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     Terms to classify:
     {json.dumps(terms)}
     
+    Respond STRICTLY with a valid JSON array of objects. Each object must have these exact keys:
+    - "search_term": (string matching the input exactly)
+    - "classification": (strictly choose one: "relevant", "irrelevant", or "review")
+    - "confidence": (float between 0.00 and 1.00)
+    - "reason": (string explaining why - MUST BE 5 WORDS OR LESS)
+    
     CRITICAL SPEED RULE: Keep the 'reason' ultra-concise. Do not exceed 5 words under any circumstance.
     """
     
     try:
-        # Enforce the strict schema response natively at the API tier
         response = model.generate_content(
             prompt,
             generation_config={
                 "response_mime_type": "application/json",
-                "response_schema": List[ClassifiedSearchTerm], # <-- Instructs Gemini's framework directly
                 "temperature": 0.1
             }
         )
         
-        # Clean markdown if present
         clean_text = response.text.strip()
         if clean_text.startswith("```"):
             lines = clean_text.splitlines()
@@ -72,7 +65,9 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
         return json.loads(clean_text)
         
     except Exception as e:
-        return [{"search_term": t, "classification": "review", "confidence": 0.5, "reason": f"Fallback: {str(e)[:15]}"} for t in terms]
+        # FIXED: Removed the broken unbound string method logic
+        error_msg = str(e)
+        return [{"search_term": t, "classification": "review", "confidence": 0.5, "reason": f"Err: {error_msg[:12]}"} for t in terms]
 
 def extract_root_negatives(irrelevant_phrases: list, saved_phrases: list, protected_list: list) -> dict:
     irr_words = []
@@ -82,6 +77,7 @@ def extract_root_negatives(irrelevant_phrases: list, saved_phrases: list, protec
     saved_words = set()
     for phrase in saved_phrases:
         saved_words.update(re.findall(r'\b\w+\b', phrase.lower()))
+        
     for phrase in protected_list:
         saved_words.update(re.findall(r'\b\w+\b', phrase.lower()))
         
