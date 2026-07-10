@@ -6,8 +6,8 @@ import json
 
 def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     """
-    Ultra-high-speed batch classification engine.
-    Uses conditional reasoning parameters and safe token capping to minimize output latency.
+    Repaired and optimized batch classification engine. 
+    Enforces conditional empty strings for reasons on high-confidence terms to maximize speed.
     """
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -21,12 +21,13 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
 
     CORE AUDITING IDEOLOGY (GUILTY UNTIL PROVEN INNOCENT):
     - Every search term is considered IRRELEVANT or requires REVIEW by default.
+    - A term is NEVER 'relevant' simply because it is vaguely or tangentially related to the industry.
     - A term must actively PROVE its strict commercial intent and clear alignment with core offerings to be marked 'relevant'.
 
     CRITICAL CLASSIFICATION BOUNDARIES:
-    1. 'relevant' -> Explicit intent to buy/hire core offerings. Zero educational/research signals.
-    2. 'irrelevant' -> Competitor targets, explicit exclusion flags, or falls outside target offerings.
-    3. 'review' -> Even 1% uncertain, lacks clear intent modifier, or contains mixed signals.
+    1. 'relevant' -> Use ONLY if the term shows explicit intent to buy, hire, or use core offerings, AND it contains zero educational, research, or casual intent signals.
+    2. 'irrelevant' -> Use if it matches competitor targets, explicit exclusion flags, or falls completely outside target offerings.
+    3. 'review' -> Use if you are even 1% uncertain, if it lacks a clear intent modifier, or contains mixed signals.
 
     Active Brand Rules Context Baseline:
     {rules_context}
@@ -39,24 +40,18 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     - "classification": (strictly choose one: "relevant", "irrelevant", or "review")
     - "confidence": (float between 0.00 and 1.00)
     - "reason": (string)
-
-    ⚡ HIGH-SPEED CONDITION RULE FOR THE 'reason' KEY:
-    - If confidence is 0.80 or higher, you MUST return an empty string "" for the reason.
-    - Only if confidence is lower than 0.80, provide a reason of 5 words or less. Do not waste output tokens explaining obvious decisions.
+    
+    CRITICAL SPEED RULE FOR THE 'reason' VALUE:
+    - If confidence is 0.80 or higher, you MUST set "reason": "" (an empty string). Do not write text for obvious classifications.
+    - Only if confidence is LESS than 0.80, provide a short explanation of 5 words or less.
     """
     
     try:
-        # Calculate worst-case token ceiling for the batch + massive safety multiplier
-        # 50-100 stripped objects need 700-1400 tokens max. 2000 is perfectly safe.
-        max_tokens_guardrail = len(terms) * 25
-        token_cap = max(1500, min(max_tokens_guardrail, 3000))
-
         response = model.generate_content(
             prompt,
             generation_config={
                 "response_mime_type": "application/json",
-                "temperature": 0.1,
-                "max_output_tokens": token_cap
+                "temperature": 0.1
             }
         )
         
@@ -76,10 +71,6 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
         return [{"search_term": t, "classification": "review", "confidence": 0.5, "reason": f"Err: {error_msg[:12]}"} for t in terms]
 
 def extract_root_negatives(irrelevant_phrases: list, saved_phrases: list, protected_list: list) -> dict:
-    """
-    Optimized root extractor. Compiles recurring broad modifiers out of 
-    the final negative phrases bucket behind the scenes.
-    """
     irr_words = []
     for phrase in irrelevant_phrases:
         irr_words.extend(re.findall(r'\b\w+\b', phrase.lower()))
