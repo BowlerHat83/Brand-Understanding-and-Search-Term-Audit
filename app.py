@@ -360,7 +360,7 @@ elif st.session_state.stage == 2:
     st.header("Stage 2: Precision Matrix Execution")
     st.subheader("Executing AI Negative Keyword Analysis")
 
-    # Safety structural assertion checks - FIX: Remapped to check locked_rules
+    # Safety structural assertion checks
     if not st.session_state.locked_rules:
         st.error("❌ Brand Profile baseline data is missing. Please return to Stage 1.")
         if st.button("⬅️ Back to Stage 1"):
@@ -368,13 +368,30 @@ elif st.session_state.stage == 2:
             st.rerun()
         st.stop()
 
+    # --- NEW: CSV TARGET DATA INPUT SHIELD ---
     if "raw_search_terms" not in st.session_state or not st.session_state.raw_search_terms:
-        st.error("❌ Search terms target data is missing. Please return to Stage 1.")
-        if st.button("⬅️ Back to Stage 1"):
-            st.session_state.stage = 1
-            st.rerun()
+        st.markdown("### 📥 Upload Target Search Terms")
+        uploaded_file = st.file_uploader("Upload your target CSV file containing search terms", type=["csv"], key="stage2_csv_uploader")
+        
+        if uploaded_file is not None:
+            import pandas as pd
+            try:
+                # Read CSV, drop empty rows, and convert the first column to a clean list of strings
+                df = pd.read_csv(uploaded_file)
+                if not df.empty:
+                    first_col = df.columns[0]
+                    raw_terms = df[first_col].dropna().astype(str).str.strip().tolist()
+                    # Filter out empty strings
+                    st.session_state.raw_search_terms = [t for t in raw_terms if t]
+                    st.success(f"✅ Successfully loaded {len(st.session_state.raw_search_terms)} search terms from CSV!")
+                    st.rerun()
+                else:
+                    st.error("❌ The uploaded CSV file appears to be empty.")
+            except Exception as e:
+                st.error(f"❌ Error parsing CSV: {str(e)}")
         st.stop()
 
+    # If data is present, bind it to runtime variables
     search_terms = st.session_state.raw_search_terms
     total_input_count = len(search_terms)
 
@@ -440,7 +457,6 @@ elif st.session_state.stage == 2:
                     continue
 
                 # API Quota Pacer: Every 12 fast requests, take a 45-second breath 
-                # to reset Google's Requests-Per-Minute (RPM) wall safely.
                 if batch_count > 0 and batch_count % 12 == 0:
                     for remaining in range(45, 0, -1):
                         counter_text.text(f"⏳ Rate-Limit Protection: Pausing for {remaining}s to refresh Google API limits...")
@@ -448,7 +464,7 @@ elif st.session_state.stage == 2:
                 
                 counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
                 
-                # FIX: Locally apply the Language Protection Shield built into Stage 1
+                # Apply Language Protection Shield
                 verified_batch_results = []
                 terms_for_ai = []
                 
@@ -463,7 +479,7 @@ elif st.session_state.stage == 2:
                     else:
                         terms_for_ai.append(term)
                 
-                # Call the backend batch classifier only for clean terms
+                # Call backend for clean terms
                 if terms_for_ai:
                     try:
                         ai_results = classify_terms_batch(terms_for_ai, st.session_state.locked_rules)
@@ -508,7 +524,7 @@ elif st.session_state.stage == 2:
             st.session_state.audit_running = False
             counter_text.text("Processing complete! Refreshing interface...")
             st.rerun()
-
+            
 # =====================================================================
 # STAGE 3: TRIAGE DESK & EXPORT ROUTING
 # =====================================================================
