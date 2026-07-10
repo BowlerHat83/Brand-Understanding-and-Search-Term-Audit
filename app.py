@@ -360,8 +360,8 @@ elif st.session_state.stage == 2:
     st.header("Stage 2: Precision Matrix Execution")
     st.subheader("Executing AI Negative Keyword Analysis")
 
-    # Safety structural assertion checks
-    if "brand_profile" not in st.session_state or not st.session_state.brand_profile:
+    # Safety structural assertion checks - FIX: Remapped to check locked_rules
+    if not st.session_state.locked_rules:
         st.error("❌ Brand Profile baseline data is missing. Please return to Stage 1.")
         if st.button("⬅️ Back to Stage 1"):
             st.session_state.stage = 1
@@ -379,7 +379,7 @@ elif st.session_state.stage == 2:
     total_input_count = len(search_terms)
 
     # Initialize Stage 2 localized tracking state variables if not present
-    if "audit_results" not in st.session_state:
+    if st.session_state.audit_results is None:
         st.session_state.audit_results = {}
 
     # Calculate real-time state values from active session state ledger
@@ -399,6 +399,7 @@ elif st.session_state.stage == 2:
     with col2:
         if st.button("🔄 Clear & Restart Audit", type="secondary"):
             st.session_state.audit_results = {}
+            st.session_state.audit_running = False
             st.rerun()
 
     progress_bar = st.progress(len(processed_terms_set) / total_input_count if total_input_count > 0 else 0.0)
@@ -425,6 +426,7 @@ elif st.session_state.stage == 2:
             from backend_stage2 import classify_terms_batch
             import time
 
+            st.session_state.audit_running = True
             # --- CHUNK PROCESSING CONFIGURATION ---
             BATCH_SIZE = 50  # Small, lightweight chunk structure for maximum model velocity
             batch_count = 0  
@@ -446,12 +448,39 @@ elif st.session_state.stage == 2:
                 
                 counter_text.text(f"Processing Precision Matrix Chunk: Terms {i} to {min(i + BATCH_SIZE, total_input_count)} of {total_input_count}...")
                 
-                # Call the rock-solid text-parsed backend batch classifier
-                batch_results = classify_terms_batch(batch, st.session_state.brand_profile)
+                # FIX: Locally apply the Language Protection Shield built into Stage 1
+                verified_batch_results = []
+                terms_for_ai = []
+                
+                for term in batch:
+                    if is_foreign_script(term):
+                        verified_batch_results.append({
+                            "search_term": term,
+                            "classification": "irrelevant",
+                            "confidence": 1.00,
+                            "reason": "Foreign script shield trigger"
+                        })
+                    else:
+                        terms_for_ai.append(term)
+                
+                # Call the backend batch classifier only for clean terms
+                if terms_for_ai:
+                    try:
+                        ai_results = classify_terms_batch(terms_for_ai, st.session_state.locked_rules)
+                        verified_batch_results.extend(ai_results)
+                    except Exception as e:
+                        for t in terms_for_ai:
+                            verified_batch_results.append({
+                                "search_term": t,
+                                "classification": "review",
+                                "confidence": 0.50,
+                                "reason": "Fallback: API Connection Error"
+                            })
+                
                 batch_count += 1  
                 
                 # Safely write results into state ledger
-                for res in batch_results:
+                for res in verified_batch_results:
                     st.session_state.audit_results[res["search_term"]] = {
                         "classification": res["classification"],
                         "confidence": res["confidence"],
@@ -476,6 +505,7 @@ elif st.session_state.stage == 2:
                 # Stabilizer step breath
                 time.sleep(1)
             
+            st.session_state.audit_running = False
             counter_text.text("Processing complete! Refreshing interface...")
             st.rerun()
 
@@ -484,12 +514,47 @@ elif st.session_state.stage == 2:
 # =====================================================================
 elif st.session_state.stage == 3:
     
-# ==========================================
-# 📊 OUTPUT SUMMARY & BATCH TRIAGE
-# ==========================================
-if st.session_state.get("audit_results") is not None:
-    res_data = st.session_state.audit_results
+    # Safety structural assertion check to protect data integrity
+    if "audit_results" not in st.session_state or not st.session_state.audit_results:
+        st.warning("No audit matrix outputs discovered. Please complete Stage 2 processing structures first.")
+        st.stop()
+
+    # --- DYNAMIC DATA RECONSTRUCTION LAYER ---
+    # Rebuild nested metrics and arrays out of Stage 2's flat session state dictionary
+    flat_results = st.session_state.audit_results
     
+    relevant_raw = [{"Search Term": t, "Confidence Score": v["confidence"], "Reasoning": v["reason"]} for t, v in flat_results.items() if v["classification"] == "relevant"]
+    irrelevant_raw = [{"Search Term": t, "Confidence Score": v["confidence"], "Reasoning": v["reason"]} for t, v in flat_results.items() if v["classification"] == "irrelevant"]
+    review_raw = [{"Search Term": t, "Confidence Score": v["confidence"], "Reasoning": v["reason"]} for t, v in flat_results.items() if v["classification"] == "review"]
+    
+    # Calculate overlooked/bypassed items natively
+    all_uploaded_terms = st.session_state.get("raw_search_terms", [])
+    overlooked_raw = [{"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Bypassed direct rule generation matrix"} for t in all_uploaded_terms if t not in flat_results]
+
+    # Generate the standard match-type syntax list for copy-pasting
+    copy_paste_list = [f'"{item["Search Term"]}"' for item in irrelevant_raw]
+
+    # Construct the structural res_data object for the rest of your page scripts
+    res_data = {
+        "relevant": relevant_raw,
+        "irrelevant": irrelevant_raw,
+        "review": review_raw,
+        "overlooked": overlooked_raw,
+        "copy_paste_list": copy_paste_list,
+        "roots": [], # Placeholder to prevent download stream execution crashes
+        "metrics": {
+            "Total Inputted Terms": len(all_uploaded_terms),
+            "Relevant Terms": len(relevant_raw),
+            "Irrelevant Terms": len(irrelevant_raw),
+            "Review Queue Terms": len(review_raw),
+            "Potentially Overlooked Terms": len(overlooked_raw),
+            "Extracted Roots Count": 0
+        }
+    }
+
+    # ==========================================
+    # 📊 OUTPUT SUMMARY & BATCH TRIAGE
+    # ==========================================
     st.markdown("---")
     st.subheader("🛡️ Audit Summary Performance Data")
     
@@ -529,7 +594,7 @@ if st.session_state.get("audit_results") is not None:
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Initialize triage engine states if missing
-    from backend_stage3 import update_brand_profile_cache
+    from backend_stage3 import update_brand_profile_cache, push_to_google_sheets
 
     if "triage_list" not in st.session_state:
         st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
@@ -581,41 +646,20 @@ if st.session_state.get("audit_results") is not None:
                     row_cols[1].text(term)
                     if is_selected:
                         selected_terms.append(term)
-                    
+                        
             # --- HIGH-SPEED SET-MAPPED TRIAGE ACTION DESK (FIXED SLOWDOWN) ---
             if trigger_move_relevant or trigger_move_irrelevant:
                 if not selected_terms:
                     st.warning("⚠️ Please select items using the checkboxes or use the toggle button first.")
                 else:
-                    is_rel = trigger_move_relevant
+                    # Update the true source state dictionary mapping instantly
+                    for term in selected_terms:
+                        if trigger_move_relevant:
+                            st.session_state.audit_results[term] = {"classification": "relevant", "confidence": 1.0, "reason": "Human Triage Map"}
+                        else:
+                            st.session_state.audit_results[term] = {"classification": "irrelevant", "confidence": 1.0, "reason": "Human Triage Map"}
                     
-                    # Flatten arrays into instant O(1) memory hash-sets
-                    existing_relevant = {r["Search Term"] for r in res_data["relevant"]}
-                    existing_irrelevant = {i["Search Term"] for i in res_data["irrelevant"]}
-                    existing_copy_paste = set(res_data["copy_paste_list"])
-                    
-                    new_relevant_entries = []
-                    new_irrelevant_entries = []
-                    new_notations = []
-                    
-                    if is_rel:
-                        for t in selected_terms:
-                            if t not in existing_relevant:
-                                new_relevant_entries.append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
-                        res_data["relevant"].extend(new_relevant_entries)
-                    else:
-                        for t in selected_terms:
-                            if t not in existing_irrelevant:
-                                new_irrelevant_entries.append({"Search Term": t, "Confidence Score": 1.0, "Reasoning": "Human Triage Map"})
-                                notation = apply_ads_notation(t, is_exact=False)
-                                if notation not in existing_copy_paste:
-                                    new_notations.append(notation)
-                                    existing_copy_paste.add(notation)
-                                    
-                        res_data["irrelevant"].extend(new_irrelevant_entries)
-                        res_data["copy_paste_list"].extend(new_notations)
-                    
-                    # Evacuate selected terms instantly
+                    # Evacuate selected terms instantly from triage queue list tracking
                     triage_set = set(selected_terms)
                     for index, term in enumerate(st.session_state.triage_list):
                         if term in triage_set:
@@ -624,16 +668,7 @@ if st.session_state.get("audit_results") is not None:
                                 del st.session_state[key_to_clear]
                                 
                     st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in triage_set]
-                    res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in triage_set]
-                    res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in triage_set]
-                    
-                    res_data["metrics"]["Review Queue Terms"] = len(res_data["review"])
-                    res_data["metrics"]["Potentially Overlooked Terms"] = len(res_data["overlooked"])
-                    res_data["metrics"]["Relevant Terms"] = len(res_data["relevant"])
-                    res_data["metrics"]["Irrelevant Terms"] = len(res_data["irrelevant"])
-                    
                     st.session_state.cache_committed = False
-                    st.session_state.audit_results = res_data
                     st.success(f"Successfully routed {len(selected_terms)} terms internally!")
                     st.rerun()
         else:
@@ -772,3 +807,5 @@ if st.session_state.get("audit_results") is not None:
                 
                 st.session_state.stage = 1
                 st.rerun()
+
+
