@@ -20,6 +20,7 @@ from backend_stage3 import push_to_google_sheets
 # --- INITIAL APP SETUP & STATE MANAGEMENT ---
 st.set_page_config(page_title="Negative Keyword Architect", layout="wide")
 
+# Clean layout style tracking without any button color overrides
 st.markdown("""
     <style>
         div[data-testid="stDataFrame"] div[role="gridcell"] {
@@ -260,7 +261,7 @@ if st.session_state.stage == 1:
             st.session_state.cache_key = cache_key
             st.session_state.stage = 2
             st.rerun()
-
+            
 # ==========================================
 # 📊 STAGE 2: ATOMIC FRAGMENT EXECUTION ENGINE
 # ==========================================
