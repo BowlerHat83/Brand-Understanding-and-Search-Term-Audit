@@ -37,6 +37,43 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- BULLETPROOF LOCAL CACHE STORAGE HUB ---
+LOCAL_CACHE_FILE = "brand_cache.json"
+
+def get_local_cache():
+    """Loads terms stored persistently on the local machine sorted by Workspace."""
+    if os.path.exists(LOCAL_CACHE_FILE):
+        with open(LOCAL_CACHE_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except:
+                return {}
+    return {}
+
+def filter_local_cache_by_workspace(workspace_key):
+    """Isolates the cached values explicitly for the current active workspace profile."""
+    cache = get_local_cache()
+    if workspace_key in cache:
+        return cache[workspace_key]
+    return {"relevant": [], "irrelevant": [], "review": []}
+
+def save_audit_to_local_cache(workspace_key, relevant_terms, irrelevant_terms):
+    """Saves session terms into organized local storage under their target categories."""
+    cache = get_local_cache()
+    if workspace_key not in cache:
+        cache[workspace_key] = {"relevant": [], "irrelevant": [], "review": []}
+        
+    for term in relevant_terms:
+        if term not in cache[workspace_key]["relevant"]:
+            cache[workspace_key]["relevant"].append(term)
+            
+    for term in irrelevant_terms:
+        if term not in cache[workspace_key]["irrelevant"]:
+            cache[workspace_key]["irrelevant"].append(term)
+            
+    with open(LOCAL_CACHE_FILE, "w") as f:
+        json.dump(cache, f, indent=4)
+
 # --- BULLETPROOF GOOGLE SHEETS CACHE LAYER ---
 def get_gspread_client():
     """Authenticates using your existing Stage 3 service account secrets."""
@@ -319,6 +356,10 @@ if st.session_state.stage == 1:
         
         edited_profile = {}
         
+        # Pull matching local machine cache adjustments for this workspace signature
+        active_w_key = st.session_state.get("cache_key", f"{st.session_state.get('temp_brand_name', 'Brand')} | {st.session_state.get('temp_campaign_type', 'Search')} | {st.session_state.get('temp_ad_group_name', 'AdGroup')}")
+        local_historical_assets = filter_local_cache_by_workspace(active_w_key)
+        
         # Helper string conversion functions to map line-breaks smoothly to python arrays
         def list_to_textarea_string(lst):
             return "\n".join([str(x).strip() for x in lst if str(x).strip()])
@@ -337,6 +378,10 @@ if st.session_state.stage == 1:
             prot_raw_list = st.session_state.brand_profile.get("protected_terms", [])
             prot_text = st.text_area("Enter Protected Core Terms (One per line):", value=list_to_textarea_string(prot_raw_list), height=150, key="ta_prot")
             edited_profile["protected_terms"] = textarea_string_to_list(prot_text)
+            
+            if local_historical_assets["relevant"]:
+                st.markdown("**🔄 Historically Cached Assets (From Past Audits):**")
+                st.text_area("Scroll Saved Core Keywords", value=", ".join(local_historical_assets["relevant"]), height=75, disabled=True, key="local_hist_rel")
 
         # Dropdown Box 3: Competitors
         with st.expander("🚨 View/Edit Competitor Target Brand Names (Red Flags)", expanded=False):
@@ -349,6 +394,10 @@ if st.session_state.stage == 1:
             irr_raw_list = st.session_state.brand_profile.get("irrelevant_terms", [])
             irr_text = st.text_area("Enter Irrelevant Concepts (One per line):", value=list_to_textarea_string(irr_raw_list), height=150, key="ta_irr")
             edited_profile["irrelevant_terms"] = textarea_string_to_list(irr_text)
+            
+            if local_historical_assets["irrelevant"]:
+                st.markdown("**🔄 Historically Cached Negatives (From Past Audits):**")
+                st.text_area("Scroll Saved Negative Keywords", value=", ".join(local_historical_assets["irrelevant"]), height=75, disabled=True, key="local_hist_irr")
 
         # Dropdown Box 5: Target Languages
         with st.expander("🌐 View/Edit Allowed Target Languages & Regions", expanded=False):
@@ -707,7 +756,7 @@ if st.session_state.get("audit_results") is not None:
     
     st.markdown("""
         <style>
-            div[data-testid="stExpander"] div[role="region"] { padding: 24px 20px !important; }
+            data-testid="stExpander"] div[role="region"] { padding: 24px 20px !important; }
             div[data-testid="stForm"] { padding: 20px !important; }
             .stTextArea textarea { padding: 14px !important; }
             div.stButton > button:first-child { padding: 12px 20px !important; font-weight: 600 !important; }
@@ -772,13 +821,17 @@ if st.session_state.get("audit_results") is not None:
             cache_btn_label = "✅ Audit Knowledge Cached" if st.session_state.cache_committed else "💾 Cache Audit into Brand Knowledge"
             
             if st.button(cache_btn_label, use_container_width=True, disabled=st.session_state.cache_committed):
-                with st.spinner("Committing verified session definitions directly to cloud master ledger cache..."):
+                with st.spinner("Committing verified session definitions to cloud and local cache databases..."):
                     raw_cache_key = st.session_state.cache_key
                     profile_sig = raw_cache_key.split(" | ")[0].strip() if " | " in raw_cache_key else raw_cache_key
                     
                     rel_payload = [r["Search Term"] for r in res_data["relevant"]]
                     irr_payload = [i["Search Term"] for i in res_data["irrelevant"]]
                     
+                    # 1. Commit and back up to local storage engine ledger file
+                    save_audit_to_local_cache(raw_cache_key, rel_payload, irr_payload)
+                    
+                    # 2. Sync to Master Google Cloud Spreadsheet matching your signature
                     success = update_brand_profile_cache(
                         cache_key=profile_sig,
                         new_relevant_terms=rel_payload,
@@ -786,7 +839,7 @@ if st.session_state.get("audit_results") is not None:
                     )
                     if success:
                         st.session_state.cache_committed = True
-                        st.success("Cloud database successfully trained with current session intelligence metrics parameters!")
+                        st.success("Cloud database and local files successfully trained with current session intelligence metrics parameters!")
                         st.rerun()
                     else:
                         st.error("Pipeline connectivity error tracking database parameters back into cloud rows layer.")
@@ -817,5 +870,6 @@ if st.session_state.get("audit_results") is not None:
                     del st.session_state.cache_committed
                 
                 st.session_state.stage = 1
-                st.session_state.brand_profile
-
+                st.session_state.brand_profile = None
+                st.session_state.locked_rules = None
+                st.rerun()
