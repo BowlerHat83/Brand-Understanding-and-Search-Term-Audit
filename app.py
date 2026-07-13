@@ -472,21 +472,18 @@ if st.session_state.get("audit_results") is not None:
             else: st.info("No bypass terms detected inside threshold parameters.")
 
     # =========================================================================
-    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER WITH BRANDING INJECTED STYLES
+    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER (CLEAN DEFAULT THEME DESIGN)
     # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
-    st.markdown("""<style>div.stButton > button:first-child { padding: 12px 20px !important; font-weight: 600 !important; }</style>""", unsafe_allow_html=True)
     
     foot_col1, foot_col2, foot_col3 = st.columns(3)
     with foot_col1:
-        st.markdown("""<style>div[data-testid="stHorizontalBlock"] > div:nth-child(1) button { background-color: #2E7D32 !important; color: white !important; }</style>""", unsafe_allow_html=True)
         payload = {"Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()], "Relevant Search Terms": res_data["relevant"], "Irrelevant Search Terms": res_data["irrelevant"], "Review Queue": res_data["review"], "Potentially Overlooked": res_data["overlooked"], "Root Negatives": res_data["roots"]}
         csv_stream = push_to_google_sheets(st.session_state.cache_key, payload)
         if csv_stream is not None:
             st.download_button(label="🚀 Download Workbook Ledger (.csv)", data=csv_stream, file_name=f"Negative_Optimization_Ledger_{st.session_state.cache_key.replace(' | ', '_')}.csv", mime="text/csv", use_container_width=True)
 
     with foot_col2:
-        st.markdown("""<style>div[data-testid="stHorizontalBlock"] > div:nth-child(2) button { background-color: #C62828 !important; color: white !important; }</style>""", unsafe_allow_html=True)
         cache_btn_label = "✅ Audit Knowledge Cached" if st.session_state.cache_committed else "💾 Cache Audit into Brand Knowledge"
         if st.button(cache_btn_label, use_container_width=True, disabled=st.session_state.cache_committed):
             profile_sig = st.session_state.cache_key.split(" | ")[0].strip() if " | " in st.session_state.cache_key else st.session_state.cache_key
@@ -500,7 +497,6 @@ if st.session_state.get("audit_results") is not None:
                 st.rerun()
 
     with foot_col3:
-        st.markdown("""<style>div[data-testid="stHorizontalBlock"] > div:nth-child(3) button { background-color: #1565C0 !important; color: white !important; }</style>""", unsafe_allow_html=True)
         if st.button("🔄 Start New Audit", use_container_width=True):
             for index, term in enumerate(st.session_state.get("triage_list", [])):
                 key_to_clear = f"triage_chk_row_{term}_{index}"
