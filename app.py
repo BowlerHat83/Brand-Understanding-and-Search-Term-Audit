@@ -261,7 +261,6 @@ if st.session_state.stage == 1:
             st.session_state.stage = 2
             st.rerun()
 
-
 # ==========================================
 # 📊 STAGE 2: ATOMIC FRAGMENT EXECUTION ENGINE
 # ==========================================
@@ -269,7 +268,7 @@ elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
 
-    # 🏎️ COMPACT CONCURRENT EXECUTION CONTAINER FRAGMENT
+    # 🏎️ COMPACT CONCURRENT EXECUTION CONTAINER FRAGMENT WITH LIVE COUNTER
     @st.fragment
     def render_execution_engine(csv_file):
         if csv_file is not None:
@@ -288,7 +287,6 @@ elif st.session_state.stage == 2:
                 st.info(f"📊 **Dataset Loaded:** {total_count} unique queries identified.")
                 
                 if st.button("🚀 Launch High-Speed Async Audit Run", type="primary", use_container_width=True):
-                    prog_bar = st.progress(0)
                     status_lbl = st.empty()
                     
                     # 1. High Speed Local Vector Pre-Filtering Layer
@@ -304,22 +302,38 @@ elif st.session_state.stage == 2:
                     # 2. Slice Queue into Concurrent Batch Loads
                     BATCH_SIZE = 100
                     batches = [api_queue[x:x+BATCH_SIZE] for x in range(0, len(api_queue), BATCH_SIZE)]
+                    total_batches = len(batches)
                     
+                    # Track completed tasks in real-time
+                    completed_batches = 0
+                    
+                    async def wrapped_task(index, batch, rules, lock):
+                        nonlocal completed_batches
+                        try:
+                            res = await async_classify_wrapper(batch, rules)
+                            async with lock:
+                                completed_batches += 1
+                                status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `{completed_batches}/{total_batches}` batches... (Remaining: {total_batches - completed_batches})")
+                            return res
+                        except Exception as e:
+                            async with lock:
+                                completed_batches += 1
+                            return e
+
                     async def process_all_concurrently():
-                        status_lbl.text(f"⚡ Dispatching {len(batches)} API Matrix batches in parallel...")
-                        tasks = [async_classify_wrapper(b, st.session_state.locked_rules) for b in batches]
-                        return await asyncio.gather(*tasks, return_exceptions=True)
+                        lock = asyncio.Lock()
+                        tasks = [wrapped_task(i, b, st.session_state.locked_rules, lock) for i, b in enumerate(batches)]
+                        return await asyncio.gather(*tasks)
                     
-                    # Fire all tasks concurrently onto the event loop
-                    status_lbl.text("Firing parallel tasks to Gemini Matrix Engines...")
-                    prog_bar.progress(30)
-                    loop_results = asyncio.run(process_all_concurrently())
-                    prog_bar.progress(75)
+                    # 3. Streamlit Spinner Visual Trust Gateway
+                    with st.spinner(f"📡 Matrix Engine Active: Dispatching {total_batches} parallel API threads..."):
+                        status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `0/{total_batches}` batches... (Remaining: {total_batches})")
+                        loop_results = asyncio.run(process_all_concurrently())
                     
-                    # 3. Assemble payloads instantly without UI thrashing loops
+                    # 4. Assemble payloads instantly without UI thrashing loops
+                    status_lbl.markdown("📝 **Assembling final matrix ledgers...**")
                     for index, res_block in enumerate(loop_results):
                         if isinstance(res_block, Exception):
-                            # Append any broken batch elements directly to overlooked safety net
                             failed_batch = batches[index]
                             for term in failed_batch:
                                 overlooked_list.append({"Search Term": term, "Confidence Score": 0.0, "Reasoning": f"Async block failed: {str(res_block)}"})
@@ -332,8 +346,7 @@ elif st.session_state.stage == 2:
                             elif cls == "irrelevant": irrelevant_list.append(row_data)
                             else: review_list.append(row_data)
                     
-                    # 4. Final Core Analytics & Negative Optimization Extraction Build
-                    status_lbl.text("Extracting target negative root structures...")
+                    # 5. Final Core Analytics & Negative Optimization Extraction Build
                     irr_phrases = [r["Search Term"] for r in irrelevant_list]
                     saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
                     
@@ -353,7 +366,6 @@ elif st.session_state.stage == 2:
                         "relevant": relevant_list, "irrelevant": irrelevant_list, "review": review_list, "overlooked": overlooked_list,
                         "roots": root_payload, "copy_paste_list": copy_paste_out
                     }
-                    prog_bar.progress(100)
                     status_lbl.empty()
                     st.rerun()
             except Exception as e:
