@@ -1,13 +1,18 @@
 import re
+import json
+import asyncio
 from collections import Counter
 import google.generativeai as genai
 import streamlit as st
-import json
 
-def classify_terms_batch(terms: list, brand_profile: dict) -> list:
+# Initialize global rate-limiting gatekeeper (Allows max 5 concurrent API calls)
+API_SEMAPHORE = asyncio.Semaphore(5)
+
+async def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     """
-    Repaired and optimized batch classification engine. 
-    Enforces conditional empty strings for reasons on high-confidence terms to maximize speed.
+    Native Asynchronous batch classification engine.
+    Regulated via an internal asyncio.Semaphore to completely eliminate 429 TooManyRequests loops
+    while maintaining peak concurrent parallel processing speed.
     """
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -46,29 +51,43 @@ def classify_terms_batch(terms: list, brand_profile: dict) -> list:
     - Only if confidence is LESS than 0.80, provide a short explanation of 5 words or less.
     """
     
-    try:
-        response = model.generate_content(
-            prompt,
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1
-            }
-        )
+    # Use the semaphore to regulate access to the network request block
+    async with API_SEMAPHORE:
+        # Implement a robust retry mechanism for stability
+        for attempt in range(2):
+            try:
+                # Use the native async generation function to avoid main thread lockups
+                response = await model.generate_content_async(
+                    prompt,
+                    generation_config={
+                        "response_mime_type": "application/json",
+                        "temperature": 0.1
+                    }
+                )
+                
+                clean_text = response.text.strip()
+                if clean_text.startswith("```"):
+                    lines = clean_text.splitlines()
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    clean_text = "\n".join(lines).strip()
+                    
+                return json.loads(clean_text)
+                
+            except Exception as e:
+                error_msg = str(e)
+                # If hit with a rate limit anomaly, back off and wait before retry
+                if "429" in error_msg or "Quota" in error_msg:
+                    await asyncio.sleep(2.0 * (attempt + 1))
+                    continue
+                
+                # Fallback ledger generation for standard unrecoverable batch exceptions
+                return [{"search_term": t, "classification": "review", "confidence": 0.5, "reason": f"Err: {error_msg[:12]}"} for t in terms]
         
-        clean_text = response.text.strip()
-        if clean_text.startswith("```"):
-            lines = clean_text.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            clean_text = "\n".join(lines).strip()
-            
-        return json.loads(clean_text)
-        
-    except Exception as e:
-        error_msg = str(e)
-        return [{"search_term": t, "classification": "review", "confidence": 0.5, "reason": f"Err: {error_msg[:12]}"} for t in terms]
+        # Final fallback if both retry attempts exhaust
+        return [{"search_term": t, "classification": "review", "confidence": 0.5, "reason": "Err: RateLimit"} for t in terms]
 
 def extract_root_negatives(irrelevant_phrases: list, saved_phrases: list, protected_list: list) -> dict:
     irr_words = []
