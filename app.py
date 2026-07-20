@@ -308,18 +308,29 @@ elif st.session_state.stage == 2:
                     # Track completed tasks in real-time
                     completed_batches = 0
                     
+                    # Core Wallet Protector: Cap connections strictly to 5 at a time
+                    sem = asyncio.Semaphore(5)
+                    
                     async def wrapped_task(index, batch, rules, lock):
                         nonlocal completed_batches
-                        try:
-                            res = await async_classify_wrapper(batch, rules)
-                            async with lock:
-                                completed_batches += 1
-                                status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `{completed_batches}/{total_batches}` batches... (Remaining: {total_batches - completed_batches})")
-                            return res
-                        except Exception as e:
-                            async with lock:
-                                completed_batches += 1
-                            return e
+                        # Acquire semaphore slot before firing the API call
+                        async with sem:
+                            try:
+                                # Ensure the async wrapper is fully executed and completed
+                                res = await async_classify_wrapper(batch, rules)
+                                
+                                # If the wrapper returned another coroutine object by mistake, resolve it
+                                if inspect.iscoroutine(res):
+                                    res = await res
+                                    
+                                async with lock:
+                                    completed_batches += 1
+                                    status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `{completed_batches}/{total_batches}` batches... (Remaining: {total_batches - completed_batches})")
+                                return res
+                            except Exception as e:
+                                async with lock:
+                                    completed_batches += 1
+                                return e
 
                     async def process_all_concurrently():
                         lock = asyncio.Lock()
@@ -329,7 +340,15 @@ elif st.session_state.stage == 2:
                     # 3. Streamlit Spinner Visual Trust Gateway
                     with st.spinner(f"📡 Matrix Engine Active: Dispatching {total_batches} parallel API threads..."):
                         status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `0/{total_batches}` batches... (Remaining: {total_batches})")
-                        loop_results = asyncio.run(process_all_concurrently())
+                        
+                        # Set up clean event loop execution context
+                        try:
+                            loop = asyncio.get_event_loop()
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            
+                        loop_results = loop.run_until_complete(process_all_concurrently())
                     
                     # 4. Assemble payloads instantly without UI thrashing loops
                     status_lbl.markdown("📝 **Assembling final matrix ledgers...**")
@@ -340,12 +359,24 @@ elif st.session_state.stage == 2:
                                 overlooked_list.append({"Search Term": term, "Confidence Score": 0.0, "Reasoning": f"Async block failed: {str(res_block)}"})
                             continue
                             
-                        for res in res_block:
-                            row_data = {"Search Term": res.get("search_term", ""), "Confidence Score": res.get("confidence", 1.0), "Reasoning": res.get("reason", "")}
-                            cls = res.get("classification", "review")
-                            if cls == "relevant": relevant_list.append(row_data)
-                            elif cls == "irrelevant": irrelevant_list.append(row_data)
-                            else: review_list.append(row_data)
+                        # Bulletproof type check: ensure the block is iterable and not a lingering coroutine
+                        if res_block is not None and not inspect.iscoroutine(res_block):
+                            for res in res_block:
+                                if isinstance(res, dict):
+                                    row_data = {
+                                        "Search Term": res.get("search_term", ""), 
+                                        "Confidence Score": res.get("confidence", 1.0), 
+                                        "Reasoning": res.get("reason", "")
+                                    }
+                                    cls = str(res.get("classification", "review")).lower().strip()
+                                    if cls == "relevant": relevant_list.append(row_data)
+                                    elif cls == "irrelevant": irrelevant_list.append(row_data)
+                                    else: review_list.append(row_data)
+                        else:
+                            # Fallback if a batch payload returned completely corrupted or un-awaited
+                            failed_batch = batches[index]
+                            for term in failed_batch:
+                                overlooked_list.append({"Search Term": term, "Confidence Score": 0.0, "Reasoning": "Pipeline processing anomaly."})
                     
                     # 5. Final Core Analytics & Negative Optimization Extraction Build
                     irr_phrases = [r["Search Term"] for r in irrelevant_list]
@@ -372,6 +403,8 @@ elif st.session_state.stage == 2:
             except Exception as e:
                 st.error(f"Execution run crashed: {str(e)}")
 
+    # Add inspect import to top of your workspace definitions if not already present
+    import inspect
     render_execution_engine(uploaded_file)
 
 # ==========================================
