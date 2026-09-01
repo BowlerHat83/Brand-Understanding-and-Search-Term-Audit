@@ -1,15 +1,54 @@
+import inspect
+import asyncio
+import pandas as pd
+import streamlit as st
+
+# Import processing functions from backend module
+from backend_stage2 import (
+    classify_terms_batch,
+    extract_root_negatives,
+    apply_ads_notation,
+    is_foreign_script,
+)
+
+# ==========================================
+# 🛡️ GLOBAL SESSION STATE INITIALIZATION
+# ==========================================
+if "stage" not in st.session_state:
+    st.session_state.stage = 1
+
+if "cache_key" not in st.session_state:
+    st.session_state.cache_key = "Default Workspace"
+
+if "locked_rules" not in st.session_state:
+    st.session_state.locked_rules = {}
+
 # ==========================================
 # 📊 APP STAGE ROUTER FRAMEWORK
 # ==========================================
 
-# 1. Ensure you have your initial IF statement for Stage 1 above Stage 2
+# STAGE 1 ROUTE: Workspace & Rules Setup
 if st.session_state.stage == 1:
     st.header("Stage 1: Workspace & Brand Context Setup")
-    # ... your Stage 1 UI code ...
+    
+    st.info("Configure your brand context baseline rules below before proceeding.")
+    
+    # Placeholder Stage 1 Form Configuration
+    workspace_name = st.text_input("Workspace Name", value=st.session_state.cache_key)
+    
+    if st.button("Save & Proceed to Stage 2 Audit", type="primary"):
+        st.session_state.cache_key = workspace_name
+        st.session_state.stage = 2
+        st.rerun()
 
-# 2. Now Stage 2 can cleanly follow with ELIF at the exact same indentation level:
+# STAGE 2 ROUTE: Async Matrix Execution Engine
 elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
+    
+    if st.button("⬅️ Back to Stage 1 Setup"):
+        st.session_state.stage = 1
+        st.rerun()
+        
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
 
     @st.fragment
@@ -37,7 +76,11 @@ elif st.session_state.stage == 2:
                     
                     for term in search_terms:
                         if is_foreign_script(term):
-                            irrelevant_list.append({"Search Term": term, "Confidence Score": 1.0, "Reasoning": "Auto-Filter: Non-Latin characters."})
+                            irrelevant_list.append({
+                                "Search Term": term, 
+                                "Confidence Score": 1.0, 
+                                "Reasoning": "Auto-Filter: Non-Latin characters."
+                            })
                         else:
                             api_queue.append(term)
                             
@@ -107,14 +150,22 @@ elif st.session_state.stage == 2:
                         else:
                             failed_batch = batches[index]
                             for term in failed_batch:
-                                overlooked_list.append({"Search Term": term, "Confidence Score": 0.0, "Reasoning": "Corrupted response block."})
+                                overlooked_list.append({
+                                    "Search Term": term, 
+                                    "Confidence Score": 0.0, 
+                                    "Reasoning": "Corrupted response block."
+                                })
                     
                     protected = st.session_state.get("locked_rules", {}).get("protected_terms", [])
                     irr_phrases = [r["Search Term"] for r in irrelevant_list]
                     saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
                     
                     raw_roots = extract_root_negatives(irr_phrases, saved_phrases, protected)
-                    root_payload = [{"Root Word": w, "Blocked Volume Count": c, "Ads Notation Match": apply_ads_notation(w, is_exact=False)} for w, c in raw_roots.items()]
+                    root_payload = [{
+                        "Root Word": w, 
+                        "Blocked Volume Count": c, 
+                        "Ads Notation Match": apply_ads_notation(w, is_exact=False)
+                    } for w, c in raw_roots.items()]
                     
                     copy_paste_out = [rn["Ads Notation Match"] for rn in root_payload]
                     for irr in irrelevant_list:
@@ -123,16 +174,23 @@ elif st.session_state.stage == 2:
                     
                     st.session_state.audit_results = {
                         "metrics": {
-                            "Total Inputted Terms": total_count, "Relevant Terms": len(relevant_list), "Irrelevant Terms": len(irrelevant_list),
-                            "Review Queue Terms": len(review_list), "Potentially Overlooked Terms": len(overlooked_list), "Extracted Roots Count": len(root_payload)
+                            "Total Inputted Terms": total_count, 
+                            "Relevant Terms": len(relevant_list), 
+                            "Irrelevant Terms": len(irrelevant_list),
+                            "Review Queue Terms": len(review_list), 
+                            "Potentially Overlooked Terms": len(overlooked_list), 
+                            "Extracted Roots Count": len(root_payload)
                         },
-                        "relevant": relevant_list, "irrelevant": irrelevant_list, "review": review_list, "overlooked": overlooked_list,
-                        "roots": root_payload, "copy_paste_list": copy_paste_out
+                        "relevant": relevant_list, 
+                        "irrelevant": irrelevant_list, 
+                        "review": review_list, 
+                        "overlooked": overlooked_list,
+                        "roots": root_payload, 
+                        "copy_paste_list": copy_paste_out
                     }
                     status_lbl.empty()
                     st.rerun()
             except Exception as e:
                 st.error(f"Execution run crashed: {str(e)}")
 
-    import inspect
     render_execution_engine(uploaded_file)
