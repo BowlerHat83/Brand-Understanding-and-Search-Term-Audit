@@ -3,12 +3,19 @@ import asyncio
 import pandas as pd
 import streamlit as st
 
-# Import processing functions from backend module
+# Import processing logic from backend engine
 from backend_stage2 import (
     classify_terms_batch,
     extract_root_negatives,
     apply_ads_notation,
     is_foreign_script,
+)
+
+# Page Configuration
+st.set_page_config(
+    page_title="Google Ads Negative Keyword Auditor",
+    page_icon="🛡️",
+    layout="wide",
 )
 
 # ==========================================
@@ -21,34 +28,74 @@ if "cache_key" not in st.session_state:
     st.session_state.cache_key = "Default Workspace"
 
 if "locked_rules" not in st.session_state:
-    st.session_state.locked_rules = {}
+    st.session_state.locked_rules = {
+        "brand_name": "Core Service",
+        "offerings": [],
+        "competitors": [],
+        "protected_terms": [],
+    }
+
+if "audit_results" not in st.session_state:
+    st.session_state.audit_results = None
 
 # ==========================================
-# 📊 APP STAGE ROUTER FRAMEWORK
+# 📊 STAGE 1: WORKSPACE & BRAND RULES SETUP
 # ==========================================
-
-# STAGE 1 ROUTE: Workspace & Rules Setup
 if st.session_state.stage == 1:
-    st.header("Stage 1: Workspace & Brand Context Setup")
-    
-    st.info("Configure your brand context baseline rules below before proceeding.")
-    
-    # Placeholder Stage 1 Form Configuration
-    workspace_name = st.text_input("Workspace Name", value=st.session_state.cache_key)
-    
-    if st.button("Save & Proceed to Stage 2 Audit", type="primary"):
-        st.session_state.cache_key = workspace_name
+    st.title("🛡️ Stage 1: Workspace & Brand Context Setup")
+    st.markdown("Define target rules and brand boundaries before initiating the audit pass.")
+
+    with st.form("stage1_form"):
+        st.session_state.cache_key = st.text_input(
+            "Workspace Identifier", 
+            value=st.session_state.cache_key
+        )
+        
+        brand_name = st.text_input(
+            "Brand/Company Name", 
+            value=st.session_state.locked_rules.get("brand_name", "")
+        )
+        
+        offerings_raw = st.text_area(
+            "Core Offerings & Services (One per line)",
+            value="\n".join(st.session_state.locked_rules.get("offerings", []))
+        )
+        
+        competitors_raw = st.text_area(
+            "Competitors to Block/Flag (One per line)",
+            value="\n".join(st.session_state.locked_rules.get("competitors", []))
+        )
+        
+        protected_raw = st.text_area(
+            "Protected Terms / Whitelist Keywords (One per line)",
+            value="\n".join(st.session_state.locked_rules.get("protected_terms", []))
+        )
+
+        submitted = st.form_submit_button("Lock Context & Proceed to Stage 2 Audit 🚀", type="primary")
+
+    if submitted:
+        st.session_state.locked_rules = {
+            "brand_name": brand_name,
+            "offerings": [x.strip() for x in offerings_raw.split("\n") if x.strip()],
+            "competitors": [x.strip() for x in competitors_raw.split("\n") if x.strip()],
+            "protected_terms": [x.strip() for x in protected_raw.split("\n") if x.strip()],
+        }
         st.session_state.stage = 2
         st.rerun()
 
-# STAGE 2 ROUTE: Async Matrix Execution Engine
+# ==========================================
+# 📊 STAGE 2: AUDIT ENGINE & WORKSPACE LEDGER
+# ==========================================
 elif st.session_state.stage == 2:
-    st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
-    
-    if st.button("⬅️ Back to Stage 1 Setup"):
-        st.session_state.stage = 1
-        st.rerun()
-        
+    col_header, col_back = st.columns([4, 1])
+    with col_header:
+        st.title("⚡ Stage 2: Audit Engine Matrix")
+        st.caption(f"Active Workspace: **{st.session_state.cache_key}**")
+    with col_back:
+        if st.button("⬅️ Edit Brand Rules"):
+            st.session_state.stage = 1
+            st.rerun()
+
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
 
     @st.fragment
@@ -60,13 +107,13 @@ elif st.session_state.stage == 2:
                 term_col = next((c for c in df_input.columns if "search term" in c.lower() or "query" in c.lower()), None)
                 
                 if not term_col:
-                    st.error("Missing Search Term or Query column layout.")
+                    st.error("Missing 'Search Term' or 'Query' column in uploaded CSV.")
                     return
 
                 search_terms = df_input[term_col].dropna().drop_duplicates().tolist()
                 total_count = len(search_terms)
                 
-                st.info(f"📊 **Dataset Loaded:** {total_count} unique queries identified.")
+                st.info(f"📊 **Dataset Loaded:** {total_count} unique search queries detected.")
                 
                 if st.button("🚀 Launch High-Speed Async Audit Run", type="primary", use_container_width=True):
                     status_lbl = st.empty()
@@ -79,7 +126,7 @@ elif st.session_state.stage == 2:
                             irrelevant_list.append({
                                 "Search Term": term, 
                                 "Confidence Score": 1.0, 
-                                "Reasoning": "Auto-Filter: Non-Latin characters."
+                                "Reasoning": "Auto-Filter: Non-Latin script detected."
                             })
                         else:
                             api_queue.append(term)
@@ -112,8 +159,8 @@ elif st.session_state.stage == 2:
                         tasks = [wrapped_task(i, b, rules, lock) for i, b in enumerate(batches)]
                         return await asyncio.gather(*tasks, return_exceptions=True)
                     
-                    with st.spinner(f"📡 Matrix Engine Active: Dispatching {total_batches} parallel API threads..."):
-                        status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `0/{total_batches}` batches... (Remaining: {total_batches})")
+                    with st.spinner(f"📡 Dispatching {total_batches} API threads..."):
+                        status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `0/{total_batches}` batches...")
                         
                         try:
                             loop = asyncio.get_event_loop()
@@ -194,3 +241,55 @@ elif st.session_state.stage == 2:
                 st.error(f"Execution run crashed: {str(e)}")
 
     render_execution_engine(uploaded_file)
+
+    # ==========================================
+    # 📈 AUDIT RESULTS DASHBOARD DISPLAY
+    # ==========================================
+    if st.session_state.audit_results:
+        st.markdown("---")
+        results = st.session_state.audit_results
+        metrics = results["metrics"]
+
+        # Metric Cards Header
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Total Analyzed", metrics["Total Inputted Terms"])
+        m2.metric("Relevant", metrics["Relevant Terms"])
+        m3.metric("Irrelevant", metrics["Irrelevant Terms"])
+        m4.metric("Review Queue", metrics["Review Queue Terms"])
+        m5.metric("Overlooked / Errors", metrics["Potentially Overlooked Terms"])
+
+        # Core Data Navigation Tabs
+        tab_irr, tab_roots, tab_rev, tab_rel, tab_err, tab_export = st.tabs([
+            "🚫 Irrelevant Terms", 
+            "🌳 Root Negatives", 
+            "⚠️ Needs Review", 
+            "✅ Relevant Terms", 
+            "⚠️ Overlooked Ledger",
+            "📋 Copy-Paste & Export"
+        ])
+
+        with tab_irr:
+            st.dataframe(pd.DataFrame(results["irrelevant"]), use_container_width=True)
+
+        with tab_roots:
+            st.dataframe(pd.DataFrame(results["roots"]), use_container_width=True)
+
+        with tab_rev:
+            st.dataframe(pd.DataFrame(results["review"]), use_container_width=True)
+
+        with tab_rel:
+            st.dataframe(pd.DataFrame(results["relevant"]), use_container_width=True)
+
+        with tab_err:
+            st.dataframe(pd.DataFrame(results["overlooked"]), use_container_width=True)
+
+        with tab_export:
+            st.subheader("Google Ads Copy-Paste Format")
+            raw_text = "\n".join(results["copy_paste_list"])
+            st.text_area("Copy directly to Google Ads / Editor:", value=raw_text, height=250)
+            st.download_button(
+                "📥 Download Negative List (.txt)",
+                data=raw_text,
+                file_name=f"negatives_{st.session_state.cache_key}.txt",
+                mime="text/plain"
+            )
