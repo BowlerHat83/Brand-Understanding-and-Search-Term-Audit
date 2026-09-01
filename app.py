@@ -1,6 +1,13 @@
 # ==========================================
-# 📊 STAGE 2: ATOMIC FRAGMENT EXECUTION ENGINE
+# 📊 APP STAGE ROUTER FRAMEWORK
 # ==========================================
+
+# 1. Ensure you have your initial IF statement for Stage 1 above Stage 2
+if st.session_state.stage == 1:
+    st.header("Stage 1: Workspace & Brand Context Setup")
+    # ... your Stage 1 UI code ...
+
+# 2. Now Stage 2 can cleanly follow with ELIF at the exact same indentation level:
 elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
