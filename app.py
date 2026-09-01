@@ -7,7 +7,8 @@ import streamlit as st
 import pandas as pd
 import json
 import re
-import asyncio  # 🏎️ Core Async engine integration
+import inspect  # 🛠️ FIX 1: Moved to top imports
+import asyncio
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
@@ -15,12 +16,11 @@ from google.oauth2.service_account import Credentials
 # --- RE-MAPPED TO MATCH YOUR EXACT GITHUB FILENAMES ---
 from backend_stage1 import run_brand_audit
 from backend_stage2 import classify_terms_batch, extract_root_negatives, apply_ads_notation
-from backend_stage3 import push_to_google_sheets
+from backend_stage3 import push_to_google_sheets, update_brand_profile_cache
 
 # --- INITIAL APP SETUP & STATE MANAGEMENT ---
 st.set_page_config(page_title="Negative Keyword Architect", layout="wide")
 
-# Clean layout style tracking without any button color overrides
 st.markdown("""
     <style>
         div[data-testid="stDataFrame"] div[role="gridcell"] {
@@ -68,7 +68,7 @@ def save_audit_to_local_cache(workspace_key, relevant_terms, irrelevant_terms):
     with open(LOCAL_CACHE_FILE, "w") as f:
         json.dump(cache, f, indent=4)
 
-# --- BULLETPROOF GOOGLE SHEETS CACHE LAYER ---
+# --- GOOGLE SHEETS CACHE LAYER ---
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
@@ -137,7 +137,6 @@ def is_foreign_script(text):
 
 # --- ASYNC EXECUTOR BRIDGE ---
 async def async_classify_wrapper(batch, rules):
-    """Executes the legacy backend function safely inside an isolated thread worker."""
     return await asyncio.to_thread(classify_terms_batch, batch, rules)
 
 # --- APP STATES ---
@@ -238,7 +237,6 @@ if st.session_state.stage == 1:
         st.markdown("### 📝 Refine Brand Understanding Rulesets")
         edited_profile = {}
         active_w_key = st.session_state.get("cache_key", f"{st.session_state.get('temp_brand_name','B')} | {st.session_state.get('temp_campaign_type','S')} | {st.session_state.get('temp_ad_group_name','A')}")
-        local_historical_assets = filter_local_cache_by_workspace(active_w_key)
         
         def l2s(lst): return "\n".join([str(x).strip() for x in lst if str(x).strip()])
         def s2l(txt): return [line.strip() for line in txt.split("\n") if line.strip()]
@@ -261,7 +259,7 @@ if st.session_state.stage == 1:
             st.session_state.cache_key = cache_key
             st.session_state.stage = 2
             st.rerun()
-            
+
 # ==========================================
 # 📊 STAGE 2: ATOMIC FRAGMENT EXECUTION ENGINE
 # ==========================================
@@ -269,7 +267,6 @@ elif st.session_state.stage == 2:
     st.header(f"Stage 2: Audit Engine — Workspace: {st.session_state.cache_key}")
     uploaded_file = st.file_uploader("Upload Search Term Export (CSV Format)", type=["csv"])
 
-    # 🏎️ COMPACT CONCURRENT EXECUTION CONTAINER FRAGMENT WITH LIVE COUNTER
     @st.fragment
     def render_execution_engine(csv_file):
         if csv_file is not None:
@@ -290,7 +287,6 @@ elif st.session_state.stage == 2:
                 if st.button("🚀 Launch High-Speed Async Audit Run", type="primary", use_container_width=True):
                     status_lbl = st.empty()
                     
-                    # 1. High Speed Local Vector Pre-Filtering Layer
                     relevant_list, irrelevant_list, review_list, overlooked_list = [], [], [], []
                     api_queue = []
                     
@@ -300,26 +296,17 @@ elif st.session_state.stage == 2:
                         else:
                             api_queue.append(term)
                             
-                    # 2. Slice Queue into Concurrent Batch Loads
                     BATCH_SIZE = 100
                     batches = [api_queue[x:x+BATCH_SIZE] for x in range(0, len(api_queue), BATCH_SIZE)]
                     total_batches = len(batches)
-                    
-                    # Track completed tasks in real-time
                     completed_batches = 0
-                    
-                    # Core Wallet Protector: Cap connections strictly to 5 at a time
                     sem = asyncio.Semaphore(5)
                     
                     async def wrapped_task(index, batch, rules, lock):
                         nonlocal completed_batches
-                        # Acquire semaphore slot before firing the API call
                         async with sem:
                             try:
-                                # Ensure the async wrapper is fully executed and completed
                                 res = await async_classify_wrapper(batch, rules)
-                                
-                                # If the wrapper returned another coroutine object by mistake, resolve it
                                 if inspect.iscoroutine(res):
                                     res = await res
                                     
@@ -337,20 +324,12 @@ elif st.session_state.stage == 2:
                         tasks = [wrapped_task(i, b, st.session_state.locked_rules, lock) for i, b in enumerate(batches)]
                         return await asyncio.gather(*tasks)
                     
-                    # 3. Streamlit Spinner Visual Trust Gateway
                     with st.spinner(f"📡 Matrix Engine Active: Dispatching {total_batches} parallel API threads..."):
                         status_lbl.markdown(f"⚡ **Processing Matrix:** Completed `0/{total_batches}` batches... (Remaining: {total_batches})")
                         
-                        # Set up clean event loop execution context
-                        try:
-                            loop = asyncio.get_event_loop()
-                        except RuntimeError:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            
-                        loop_results = loop.run_until_complete(process_all_concurrently())
+                        # 🛠️ FIX 2: Clean thread-safe asyncio loop handling
+                        loop_results = asyncio.run(process_all_concurrently())
                     
-                    # 4. Assemble payloads instantly without UI thrashing loops
                     status_lbl.markdown("📝 **Assembling final matrix ledgers...**")
                     for index, res_block in enumerate(loop_results):
                         if isinstance(res_block, Exception):
@@ -359,7 +338,6 @@ elif st.session_state.stage == 2:
                                 overlooked_list.append({"Search Term": term, "Confidence Score": 0.0, "Reasoning": f"Async block failed: {str(res_block)}"})
                             continue
                             
-                        # Bulletproof type check: ensure the block is iterable and not a lingering coroutine
                         if res_block is not None and not inspect.iscoroutine(res_block):
                             for res in res_block:
                                 if isinstance(res, dict):
@@ -373,12 +351,10 @@ elif st.session_state.stage == 2:
                                     elif cls == "irrelevant": irrelevant_list.append(row_data)
                                     else: review_list.append(row_data)
                         else:
-                            # Fallback if a batch payload returned completely corrupted or un-awaited
                             failed_batch = batches[index]
                             for term in failed_batch:
                                 overlooked_list.append({"Search Term": term, "Confidence Score": 0.0, "Reasoning": "Pipeline processing anomaly."})
                     
-                    # 5. Final Core Analytics & Negative Optimization Extraction Build
                     irr_phrases = [r["Search Term"] for r in irrelevant_list]
                     saved_phrases = [r["Search Term"] for r in relevant_list] + [r["Search Term"] for r in review_list] + [r["Search Term"] for r in overlooked_list]
                     
@@ -403,8 +379,6 @@ elif st.session_state.stage == 2:
             except Exception as e:
                 st.error(f"Execution run crashed: {str(e)}")
 
-    # Add inspect import to top of your workspace definitions if not already present
-    import inspect
     render_execution_engine(uploaded_file)
 
 # ==========================================
@@ -430,7 +404,6 @@ if st.session_state.get("audit_results") is not None:
             st.markdown(f'<div class="metric-bold-value">{res_data["metrics"][key]}</div>', unsafe_allow_html=True)
             
     st.markdown("<br>", unsafe_allow_html=True)
-    from backend_stage3 import update_brand_profile_cache
 
     if "triage_list" not in st.session_state:
         st.session_state.triage_list = [item["Search Term"] for item in res_data["review"]] + [item["Search Term"] for item in res_data["overlooked"]]
@@ -465,6 +438,7 @@ if st.session_state.get("audit_results") is not None:
                     row_cols[1].text(term)
                     if is_selected: selected_terms.append(term)
                     
+            # 🛠️ FIX 3: Robust triage cleanup preventing widget ID collisions
             if trigger_move_relevant or trigger_move_irrelevant:
                 if not selected_terms:
                     st.warning("⚠️ No checkboxes selected.")
@@ -480,6 +454,12 @@ if st.session_state.get("audit_results") is not None:
                                 notation = apply_ads_notation(t, is_exact=False)
                                 if notation not in res_data["copy_paste_list"]: res_data["copy_paste_list"].append(notation)
                                 
+                    # Clean obsolete checkbox state keys
+                    for index, term in enumerate(st.session_state.triage_list):
+                        k = f"triage_chk_row_{term}_{index}"
+                        if k in st.session_state:
+                            del st.session_state[k]
+
                     st.session_state.triage_list = [t for t in st.session_state.triage_list if t not in selected_terms]
                     res_data["review"] = [r for r in res_data["review"] if r["Search Term"] not in selected_terms]
                     res_data["overlooked"] = [o for o in res_data["overlooked"] if o["Search Term"] not in selected_terms]
@@ -505,16 +485,29 @@ if st.session_state.get("audit_results") is not None:
             else: st.info("No bypass terms detected inside threshold parameters.")
 
     # =========================================================================
-    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER (CLEAN DEFAULT THEME DESIGN)
+    # 3. FULL-WIDTH WORKSPACE CONTROLS FOOTER
     # =========================================================================
     st.subheader("⚙️ Global Workspace Controls")
     
     foot_col1, foot_col2, foot_col3 = st.columns(3)
     with foot_col1:
-        payload = {"Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()], "Relevant Search Terms": res_data["relevant"], "Irrelevant Search Terms": res_data["irrelevant"], "Review Queue": res_data["review"], "Potentially Overlooked": res_data["overlooked"], "Root Negatives": res_data["roots"]}
+        payload = {
+            "Metrics Data": [{"Metric Name": k, "Value": v} for k, v in res_data["metrics"].items()],
+            "Relevant Search Terms": res_data["relevant"],
+            "Irrelevant Search Terms": res_data["irrelevant"],
+            "Review Queue": res_data["review"],
+            "Potentially Overlooked": res_data["overlooked"],
+            "Root Negatives": res_data["roots"]
+        }
         csv_stream = push_to_google_sheets(st.session_state.cache_key, payload)
         if csv_stream is not None:
-            st.download_button(label="🚀 Download Workbook Ledger (.csv)", data=csv_stream, file_name=f"Negative_Optimization_Ledger_{st.session_state.cache_key.replace(' | ', '_')}.csv", mime="text/csv", use_container_width=True)
+            st.download_button(
+                label="🚀 Download Workbook Ledger (.csv)",
+                data=csv_stream,
+                file_name=f"Negative_Optimization_Ledger_{st.session_state.cache_key.replace(' | ', '_')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
 
     with foot_col2:
         cache_btn_label = "✅ Audit Knowledge Cached" if st.session_state.cache_committed else "💾 Cache Audit into Brand Knowledge"
